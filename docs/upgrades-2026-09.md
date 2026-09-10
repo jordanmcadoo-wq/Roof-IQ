@@ -23,8 +23,10 @@ Summary of defects: duplicate parcels routed as separate doors (~11% of Zone 03)
 `city` null across the dataset, and a walking order that ignores both geography
 and lead value.
 
-Delivered as a **Data Health** admin page that scans all leads, reports counts,
-and applies fixes behind a confirmation step. Detection is non-destructive —
+The null `zone_number` / `city` backfill and the junk-address flagging are fully
+applied to the live dataset. Duplicate detection is delivered as a **Data Health**
+admin page that scans all leads, reports counts, and applies fixes behind a
+confirmation step. Detection is non-destructive —
 duplicates are flagged, never deleted.
 
 Every route, list, map and dashboard figure in the app now excludes leads where

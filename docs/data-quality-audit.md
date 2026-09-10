@@ -52,10 +52,11 @@ Both fields are defined in the schema but were never populated:
 This forces every consumer to re-parse the `"Zone 07 · Oklahoma City"` label
 string to sort or group, and makes numeric zone sorting unreliable.
 
-**Resolution (partly applied):** all 30 `Zone` records now carry `zone_number`
-and `city`. Leads in zones 1–18 are backfilled. Zones 19–30 are completed by the
-Data Health page, which parses the number out of the zone label — repeatable for
-future data loads.
+**Resolution (applied):** all 30 `Zone` records now carry `zone_number` and
+`city`, and all ~4,400 `Lead` records carry `zone_number`. Verified complete — no
+record in either entity has a null in these fields. The Data Health page repeats
+this backfill by parsing the number out of the zone label, so future storm loads
+are covered without manual work.
 
 ## 4. Inefficient walking order
 
