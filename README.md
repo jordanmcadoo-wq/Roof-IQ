@@ -23,10 +23,25 @@ composite damage index, and the days remaining to file an insurance claim.
 
 ## Where the application lives
 
-The running application is a [Base44](https://base44.com) app
-(`6a9f85552fba8482b6a0e371`), whose source is stored on Base44 rather than in this
-repository. This repository holds documentation of the data model and of changes
-made to the app.
+The running application is a [Base44](https://base44.com) app, whose source is
+stored on Base44 rather than in this repository. This repository holds
+documentation of the data model and of changes made to the app.
+
+| | |
+| --- | --- |
+| App | `RoofIQ` |
+| App ID | `6a9f85552fba8482b6a0e371` |
+| Workspace | `6a9f84531ff69d7535b38097` |
+| Open | https://app.base44.com/apps/6a9f85552fba8482b6a0e371 |
+| Editor | https://app.base44.com/apps/6a9f85552fba8482b6a0e371/editor/preview |
+
+If a direct link 404s, sign in at https://base44.com first and open **RoofIQ**
+from the dashboard — the deep links do not redirect to login, and they resolve
+only for an account with access to the workspace above.
+
+Base44's direct file and shell access (`sandbox-bridge`) requires the Builder
+plan. On the free tier, application changes go through the Base44 builder UI, and
+schema and record changes go through the entity APIs.
 
 ## Documentation
 
