@@ -61,6 +61,43 @@ export default function RouteView() {
     return original - better
   }, [leads])
 
+  /**
+   * An empty list has several causes and they are not interchangeable. Saying
+   * "zone complete" when a filter did the emptying is a claim the rep can act
+   * on and be wrong about -- a rep with no leads assigned would be told the
+   * zone was finished. Name the filter actually responsible instead.
+   */
+  const emptyState = useMemo(() => {
+    if (!leads?.length) {
+      return {
+        title: 'No leads in this zone',
+        body: 'Nothing has been routed here yet.',
+      }
+    }
+    if (mineOnly && !leads.some((l) => l.assigned_to === session.user.id)) {
+      return {
+        title: 'None of these are yours',
+        body: 'No lead in this zone is assigned to you. Switch to All reps to see the rest.',
+      }
+    }
+    if (bandFilter && !leads.some((l) => l.band === bandFilter)) {
+      return {
+        title: `No ${bandFilter} leads here`,
+        body: 'Clear the band filter to see the other doors in this zone.',
+      }
+    }
+    if (hideDone) {
+      return {
+        title: 'Zone complete',
+        body: 'Every door here has an outcome. Switch to Showing all to review them.',
+      }
+    }
+    return {
+      title: 'Nothing to show',
+      body: 'The current filters exclude every door in this zone.',
+    }
+  }, [leads, mineOnly, bandFilter, hideDone, session.user.id])
+
   function applyLocal(propertyId: string, status: LeadStatus) {
     setLeads((prev) =>
       prev?.map((l) =>
@@ -118,10 +155,7 @@ export default function RouteView() {
       </div>
 
       {!ordered.length ? (
-        <Empty
-          title="Zone complete"
-          body="Every door here has an outcome. Switch to Showing all to review them."
-        />
+        <Empty title={emptyState.title} body={emptyState.body} />
       ) : (
         <ol className="space-y-3">
           {ordered.map((lead, i) => (
