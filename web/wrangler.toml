@@ -1,0 +1,7 @@
+# Cloudflare Pages project config.
+#
+# pages_build_output_dir lets `wrangler pages deploy` run with no arguments,
+# so the CI workflow and a local deploy stay in step.
+name = "roofiq-field"
+compatibility_date = "2026-09-11"
+pages_build_output_dir = "dist"

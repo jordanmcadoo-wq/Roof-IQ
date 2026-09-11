@@ -63,15 +63,73 @@ its owner and silently bypass row-level security.
 
 ## Deploying to Cloudflare Pages
 
-1. Connect the repository in the Cloudflare dashboard
-2. **Build command:** `npm run build`
-3. **Build output directory:** `web/dist`
-4. **Root directory:** `web`
-5. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` as environment
-   variables for both Production and Preview
+The project is named `roofiq-field` (`web/wrangler.toml`). Pick either route.
 
-`public/_redirects` sends every path to `index.html` so client-side routing
-survives a hard refresh on a deep link.
+### Route A — Git integration, no CI secrets
+
+Cloudflare builds on every push. Simplest to set up.
+
+1. Cloudflare dashboard → **Workers & Pages** → **Create** → **Pages** →
+   **Connect to Git**, and pick this repository
+2. **Project name:** `roofiq-field`
+3. **Root directory:** `web`
+4. **Build command:** `npm run build`
+5. **Build output directory:** `dist` (relative to the root directory)
+6. Under **Settings → Environment variables**, add for *both* Production and
+   Preview:
+   - `VITE_SUPABASE_URL` → `https://bmnhxvdnvytdrpqgvxts.supabase.co`
+   - `VITE_SUPABASE_PUBLISHABLE_KEY` → the publishable key
+
+Vite only inlines variables prefixed `VITE_` at **build** time, so these must be
+set before the build runs. Adding them afterwards requires a redeploy.
+
+### Route B — GitHub Actions
+
+`.github/workflows/deploy-field-app.yml` builds and deploys on pushes to `main`
+that touch `web/`, and builds every pull request. It needs, in repo settings:
+
+| Kind | Name | Value |
+| --- | --- | --- |
+| Secret | `CLOUDFLARE_API_TOKEN` | Token with **Account → Cloudflare Pages → Edit** |
+| Secret | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare dashboard sidebar |
+| Variable | `VITE_SUPABASE_URL` | `https://bmnhxvdnvytdrpqgvxts.supabase.co` |
+| Variable | `VITE_SUPABASE_PUBLISHABLE_KEY` | The publishable key |
+
+Create the token at **My Profile → API Tokens → Create Token → Custom token**.
+Scope it to Cloudflare Pages Edit on that account only — nothing here needs
+Zone or DNS permissions.
+
+The Supabase values are repo *variables*, not secrets, on purpose: the
+publishable key is meant to ship inside the browser bundle. Row-level security
+guards the data. Marking it secret would imply a protection it does not provide
+and only makes rotation harder.
+
+### Deploying by hand
+
+```bash
+cd web
+npx wrangler login          # or export CLOUDFLARE_API_TOKEN
+npm run deploy              # builds, then wrangler pages deploy
+```
+
+### What ships alongside the bundle
+
+`public/_redirects` sends every path to `index.html`, so a hard refresh on a
+deep link like `/zone/OKC%20Launch%20·%20Zone%2008` still resolves.
+
+`public/_headers` sets cache and security policy:
+
+- `/assets/*` is immutable for a year — Vite fingerprints those filenames
+- `/index.html` is `no-cache`, or a deploy strands reps on stale JS pointing at
+  asset hashes the CDN no longer serves
+- A Content-Security-Policy pinned to the `roofiq-ai` Supabase origin over both
+  https and wss. `style-src` permits inline because progress bars set width
+  through a style attribute; `script-src` is `'self'` with no exceptions, which
+  the build satisfies — it emits no inline scripts
+
+**If you point the app at a different Supabase project, update `connect-src` in
+`public/_headers`.** Otherwise the browser silently blocks every query and the
+app looks broken with nothing useful in the console.
 
 ## What it does
 
