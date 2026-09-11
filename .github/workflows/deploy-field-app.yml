@@ -26,7 +26,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Wrangler 4 refuses to start on anything below Node 22, and GitHub
+          # is deprecating Node 20 on runners regardless.
+          node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
 
