@@ -9,7 +9,8 @@
     "preview": "npm run build && npx --yes wrangler@4 dev",
     "typecheck": "tsc -b --noEmit",
     "deploy": "npm run build && npx --yes wrangler@4 deploy",
-    "cf:check": "npm run build && npx --yes wrangler@4 deploy --dry-run"
+    "cf:check": "npm run build && npx --yes wrangler@4 deploy --dry-run",
+    "start": "node server.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
@@ -25,5 +26,8 @@
     "tailwindcss": "^4.0.0",
     "typescript": "^5.6.2",
     "vite": "^7.3.6"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }
