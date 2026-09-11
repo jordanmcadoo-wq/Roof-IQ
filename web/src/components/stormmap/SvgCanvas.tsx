@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { RouteLead } from '@/lib/types'
 import { Card } from '@/components/ui/primitives'
 import { shortZone } from '@/lib/format'
@@ -16,6 +16,35 @@ const mercX = (lon: number) => rad(lon)
 const mercY = (lat: number) => Math.log(Math.tan(Math.PI / 4 + rad(lat) / 2))
 
 type Pt = { x: number; y: number }
+
+/** One clipped road run from public/basemap/roads.json. */
+type Road = { n: string; r: number; c: [number, number][] }
+
+/**
+ * Highways, 7KB of Natural Earth data served from this app's own origin.
+ *
+ * Deliberately coarse: it carries I-35, I-40, I-44, I-235, I-240, US-62, US-77
+ * and US-81 and nothing smaller. That is orientation rather than navigation,
+ * which is what the zone view needs -- a rep has to know which side of I-40 a
+ * cluster sits on, not which driveway. It is also exactly how the campaign is
+ * organised ("I-40 Corridor", "Hwy 81"), so the labels match the plan on the
+ * wall. A full street grid needs a basemap file; see docs/basemap.md.
+ *
+ * Fetched rather than bundled so the main bundle is unchanged for every other
+ * tab, and failure is silent: no roads, map still works.
+ */
+function useRoads(): Road[] {
+  const [roads, setRoads] = useState<Road[]>([])
+  useEffect(() => {
+    let live = true
+    fetch('/basemap/roads.json')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (live && d?.roads) setRoads(d.roads as Road[]) })
+      .catch(() => {})
+    return () => { live = false }
+  }, [])
+  return roads
+}
 
 /**
  * Andrew's monotone chain. Zone outlines are what turn a scatter of dots into
@@ -62,6 +91,8 @@ export default function SvgCanvas({
   selected: RouteLead | null
   onSelect: (l: RouteLead) => void
 }) {
+  const roads = useRoads()
+
   const view = useMemo(() => {
     if (!leads.length) return null
     const xs = leads.map((l) => mercX(l.lon!))
@@ -133,6 +164,53 @@ export default function SvgCanvas({
       >
         {view && (
           <>
+            {/* Highways first: they are the frame everything else sits inside. */}
+            <g style={{ pointerEvents: 'none' }}>
+              {roads.map((rd, i) => (
+                <path
+                  key={`r-${i}`}
+                  d={`M${rd.c.map(([lon, lat]) =>
+                    `${view.x(lon).toFixed(2)},${view.y(lat).toFixed(2)}`).join('L')}`}
+                  fill="none"
+                  stroke="#475569"
+                  strokeWidth={(rd.r === 1 ? 0.85 : 0.4) * view.unit}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  opacity={rd.r === 1 ? 0.95 : 0.6}
+                />
+              ))}
+            </g>
+
+            {/* Route shields on the majors only, at the midpoint of each run. */}
+            <g style={{ pointerEvents: 'none' }}>
+              {roads.filter((rd) => rd.r === 1 && rd.n).map((rd, i) => {
+                const m = rd.c[Math.floor(rd.c.length / 2)]
+                const px = view.x(m[0])
+                const py = view.y(m[1])
+                // Most runs are clipped by the frame, so their midpoint often
+                // sits outside it. A shield there names nothing.
+                if (px < 0 || px > view.vbW || py < 0 || py > view.vbH) return null
+                return (
+                  <text
+                    key={`rl-${i}`}
+                    x={px}
+                    y={py}
+                    textAnchor="middle"
+                    dominantBaseline="central"
+                    fill="#cbd5e1"
+                    stroke="#0b1220"
+                    strokeWidth={0.9 * view.unit}
+                    paintOrder="stroke"
+                    strokeLinejoin="round"
+                    fontSize={2.6 * view.unit}
+                    fontWeight="700"
+                  >
+                    {rd.n}
+                  </text>
+                )
+              })}
+            </g>
+
             {/* Zone territories sit beneath the doors: shape first, then detail. */}
             <g>
               {view.zones.map((z) => z.d && (
@@ -202,6 +280,14 @@ export default function SvgCanvas({
             {/* Scale bar and north arrow: distance and orientation, the two
                 things a basemap would otherwise supply. */}
             <g style={{ pointerEvents: 'none' }}>
+              {/* Backing plate: the bar sits in the margin, but a clipped
+                  highway can still run underneath and collide with the label. */}
+              <rect
+                x={-view.unit} y={view.vbH + view.pad * 0.12}
+                width={view.bar.units + view.unit * 2}
+                height={view.pad * 0.62}
+                fill="#0b1220" opacity={0.82} rx={0.6 * view.unit}
+              />
               <line
                 x1={0} y1={view.vbH + view.pad * 0.55}
                 x2={view.bar.units} y2={view.vbH + view.pad * 0.55}

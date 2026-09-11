@@ -2,13 +2,34 @@
 
 The storm map has two canvases and picks one at build time.
 
-| `VITE_BASEMAP_URL` | Canvas | Needs tiles? | Bundle cost |
+| `VITE_BASEMAP_URL` | Canvas | Needs tiles? | Cost |
 |---|---|---|---|
-| unset (default) | projected points, hand-drawn SVG | no | none |
-| a MapLibre style URL | MapLibre GL, street basemap | yes | 291KB gz, lazy |
+| unset (default) | projected points + highways, hand-drawn SVG | no | 7KB, on the map tab only |
+| a MapLibre style URL | MapLibre GL, full street basemap | yes | 291KB gz, lazy |
 
 Both draw from the same `RAMP` and the same worked/not-worked rule, so they
 cannot disagree about what a colour means.
+
+## What the default already gives you
+
+The tile-free canvas is not a placeholder. It carries:
+
+- **Highways** from `public/basemap/roads.json` — Natural Earth 10m roads
+  (public domain), clipped to the Central Oklahoma service area. 51 segments,
+  **7 KB**: I-35, I-40, I-44, I-235, I-240, US-62, US-77, US-81, with route
+  shields on the majors. Those are the corridors the campaign is organised
+  around, so the labels match the plan on the wall.
+- **Zone outlines**, as convex hulls of each zone's own stops.
+- **Zone numbers**, drawn above the doors with a halo so they survive a dense
+  cluster.
+- **A scale bar and north arrow**, computed from the projection rather than
+  assumed.
+
+It is orientation, not navigation — enough to know which side of I-40 a cluster
+sits on, not which driveway. It is fetched rather than bundled, so it costs the
+other tabs nothing, and a failed fetch simply drops the roads.
+
+Add a `.pmtiles` below when you want the full street grid.
 
 ## Why MapLibre + self-hosted Protomaps
 
