@@ -54,17 +54,44 @@ projected by hand, so marks stay registered to the street grid at any zoom.
 Everything except the archive itself is already committed and verified. One
 file is all that is left:
 
-1. Go to <https://app.protomaps.com>, draw a box around the service area
-   (roughly `-98.45, 34.70` to `-96.70, 36.05` covers every campaign zone from
-   Chickasha to Luther) and download the `.pmtiles`.
+1. Go to <https://app.protomaps.com>, draw a box over the service area and
+   **set the maximum zoom** — this is what decides the file size:
+
+   | Max zoom | What a rep gets | Rough size, metro box |
+   |---|---|---|
+   | 13 | shape of towns, major roads | a few MB |
+   | 14 | street grid, no small names | ~5-20 MB |
+   | 15 | named residential streets | ~20-60 MB |
+   | 16 | every driveway | 100 MB+ |
+
+   **Zoom 14-15 is the right range for door knocking.** Zoom 16 is navigation
+   detail nobody reads off a phone at a front door.
+
 2. Save it as **`web/public/basemap/okc.pmtiles`**.
 3. Deploy.
 
-That is the whole procedure. No environment variable, no rebuild flag, no code
-change. On the map tab the app sends a `HEAD` to `/basemap/okc.pmtiles`; if it
-answers, the MapLibre canvas loads with the committed style, and if it 404s the
-tile-free canvas is used. The archive is ~100 MB of OSM extract, which is why it
-is not in git.
+No environment variable, no rebuild flag, no code change. On the map tab the app
+sends a `HEAD` to `/basemap/okc.pmtiles`; if it answers, the MapLibre canvas
+loads with the committed style, and if it 404s the tile-free canvas is used.
+
+### Two bounding boxes
+
+- **Current coverage** — the 4,797 routable doors all sit in the north metro:
+  `-97.70, 35.53` to `-97.12, 35.75`. Small, and the honest choice while the
+  property inventory is north-metro only.
+- **Full campaign footprint** — Chickasha to Luther:
+  `-98.45, 34.70` to `-96.70, 36.05`. Only worth the size once the inventory
+  covers those towns; today the map has nothing to draw there.
+
+### Where the file can live
+
+**Git has a hard 100 MB per-file limit**, and Railway builds from git, so the
+archive has to clear that bar to ride along in the repo. Under ~50 MB is
+comfortable; above it, either lower the max zoom, tighten the box, or host the
+archive separately and point `VITE_BASEMAP_URL` at a style that references it,
+with `BASEMAP_ORIGIN` set to that host. Cloudflare R2 suits this well — 10 GB
+free, no egress charge — but R2 has to be enabled in the Cloudflare dashboard
+first.
 
 ### What is already done
 
