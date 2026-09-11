@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { fetchZoneLeads, recordDisposition } from '@/lib/leads'
-import type { LeadStatus, RouteLead } from '@/lib/types'
-import { DOOR_OUTCOMES } from '@/lib/types'
+import { fetchZoneLeads } from '@/lib/leads'
+import { fetchFieldOutcomes, recordFieldOutcome } from '@/lib/outcomes'
+import type { FieldOutcome, LeadStatus, RouteLead } from '@/lib/types'
+import { outcomeLabel, outcomeTone } from '@/lib/types'
 import { compactMoney, hail, relativeDays, shortZone } from '@/lib/format'
 import { mapsUrl, optimizeWalkOrder, routeMiles } from '@/lib/geo'
 import { useSession } from '@/components/Session'
@@ -28,9 +29,17 @@ export default function RouteView() {
   const [bandFilter, setBandFilter] = useState<string | null>(null)
   const [mineOnly, setMineOnly] = useState(false)
 
+  const [outcomes, setOutcomes] = useState<FieldOutcome[]>([])
+
   useEffect(() => {
     fetchZoneLeads(zoneName).then(setLeads).catch((e) => setError(e.message))
   }, [zoneName])
+
+  // The outcome list is small, org-wide and identical for every stop, so it is
+  // fetched once per zone rather than per card.
+  useEffect(() => {
+    fetchFieldOutcomes().then(setOutcomes).catch((e) => setError(e.message))
+  }, [])
 
   const ordered = useMemo(() => {
     if (!leads) return []
@@ -121,6 +130,7 @@ export default function RouteView() {
               lead={lead}
               position={i + 1}
               actorId={session.user.id}
+              outcomes={outcomes}
               onSaved={applyLocal}
             />
           ))}
@@ -131,25 +141,30 @@ export default function RouteView() {
 }
 
 function LeadCard({
-  lead, position, actorId, onSaved,
+  lead, position, actorId, outcomes, onSaved,
 }: {
   lead: RouteLead
   position: number
   actorId: string
+  outcomes: FieldOutcome[]
   onSaved: (id: string, status: LeadStatus) => void
 }) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [note, setNote] = useState('')
+  const [taught, setTaught] = useState<'labelled' | 'status-only' | null>(null)
 
-  async function set(status: LeadStatus) {
+  async function file(outcome: FieldOutcome) {
     setBusy(true); setError(null)
     try {
-      const { warning } = await recordDisposition({ lead, status, note, actorId })
-      onSaved(lead.property_id, status)
+      const result = await recordFieldOutcome({ lead, code: outcome.code, note, actorId })
+      onSaved(lead.property_id, result.lead_status as LeadStatus)
       setOpen(false); setNote('')
-      if (warning) setError(warning)
+      // A neutral code carries no target, so it moves the lead along without
+      // producing a training label. Say so rather than implying every knock
+      // teaches the model something.
+      setTaught(result.training_row ? 'labelled' : 'status-only')
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -195,6 +210,14 @@ function LeadCard({
 
             {error && <div className="mt-3"><ErrorNote error={error} /></div>}
 
+            {taught && !error && (
+              <p className="mt-2 text-xs text-ink-400">
+                {taught === 'labelled'
+                  ? 'Logged — this door now trains the model.'
+                  : 'Logged. This outcome moves the lead but is not a training label.'}
+              </p>
+            )}
+
             <div className="mt-3 flex flex-wrap gap-2">
               <Button tone="primary" onClick={() => setOpen((v) => !v)}>
                 {open ? 'Close' : 'Log outcome'}
@@ -218,19 +241,24 @@ function LeadCard({
                   rows={2}
                   className="w-full rounded-xl border border-ink-600 bg-ink-800 px-3 py-2 outline-none focus:border-cool-500"
                 />
-                <div className="grid grid-cols-2 gap-2">
-                  {DOOR_OUTCOMES.map((o) => (
-                    <Button
-                      key={o.value}
-                      tone={o.tone}
-                      size="lg"
-                      disabled={busy}
-                      onClick={() => set(o.value)}
-                    >
-                      {o.label}
-                    </Button>
-                  ))}
-                </div>
+                {!outcomes.length ? (
+                  <p className="text-sm text-ink-400">Loading outcomes…</p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
+                    {outcomes.map((o) => (
+                      <Button
+                        key={o.code}
+                        tone={outcomeTone(o.category)}
+                        size="lg"
+                        disabled={busy}
+                        title={o.description ?? undefined}
+                        onClick={() => file(o)}
+                      >
+                        {outcomeLabel(o.code)}
+                      </Button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>

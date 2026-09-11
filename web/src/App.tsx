@@ -8,6 +8,7 @@ import LeadDetail from '@/routes/LeadDetail'
 import Search from '@/routes/Search'
 import Followups from '@/routes/Followups'
 import StormMap from '@/routes/StormMap'
+import Learning from '@/routes/Learning'
 import { cx } from '@/components/ui/primitives'
 
 export default function App() {
@@ -50,6 +51,7 @@ function Shell() {
           <Route path="/search" element={<Search />} />
           <Route path="/followups" element={<Followups />} />
           <Route path="/pipeline" element={<Dashboard />} />
+          <Route path="/learning" element={<Learning />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
@@ -61,6 +63,7 @@ function Shell() {
           <Tab to="/search" label="Search" />
           <Tab to="/followups" label="Follow-ups" />
           <Tab to="/pipeline" label="Pipeline" />
+          <Tab to="/learning" label="Learning" />
         </div>
       </nav>
     </div>

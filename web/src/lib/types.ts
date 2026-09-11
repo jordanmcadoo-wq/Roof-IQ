@@ -55,14 +55,49 @@ export type Profile = {
 }
 
 /** The subset a rep sets at the door, in the order they'd reach for them. */
-export const DOOR_OUTCOMES: { value: LeadStatus; label: string; tone: Tone }[] = [
-  { value: 'contact_made',        label: 'Talked to owner', tone: 'go' },
-  { value: 'knocked',             label: 'Not home',        tone: 'neutral' },
-  { value: 'inspection_set',      label: 'Inspection set',  tone: 'go' },
-  { value: 'sold',                label: 'Sold',            tone: 'go' },
-  { value: 'not_qualified',       label: 'Not qualified',   tone: 'muted' },
-  { value: 'do_not_contact',      label: 'Do not contact',  tone: 'act' },
-]
+/**
+ * A door outcome as the database defines it, from ml_outcome_taxonomy.
+ *
+ * Rows flagged field_visible are the ones a rep may file, ordered by
+ * field_order. The weight and training_label travel with the code so the UI
+ * can show a rep what a given answer teaches the model.
+ */
+export type FieldOutcome = {
+  code: string
+  category: 'positive' | 'neutral' | 'negative'
+  description: string | null
+  outcome_weight: string | number | null
+  training_label: number | null
+  target: string | null
+  field_order: number | null
+}
+
+/** Shape returned by public.ml_learning_health(). */
+export type LearningHealth = {
+  targets: Record<string, {
+    labels: number
+    positives: number
+    negatives: number
+    ready_for_training: boolean
+    models: { version?: string; status?: string; algorithm?: string }[]
+  }>
+  total_outcomes: number
+  properties_with_predictions?: number
+  recommendation_feedback_count?: number
+  mode?: string
+}
+
+/** A code turns into a button label without a second list to keep in sync. */
+export function outcomeLabel(code: string): string {
+  const words = code.replace(/_/g, ' ')
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
+export function outcomeTone(category: FieldOutcome['category']): Tone {
+  if (category === 'positive') return 'go'
+  if (category === 'negative') return 'act'
+  return 'neutral'
+}
 
 export type Tone = 'go' | 'act' | 'neutral' | 'muted'
 
