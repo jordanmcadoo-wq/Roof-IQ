@@ -2,7 +2,8 @@
 
 An audit of the v5 model against a request to "increase, tighten and harden" it.
 The short version: **the model is sound and every term is live. What limits lead
-quality is data coverage, and one change was made — a timeout fix.** No scoring
+quality is data coverage, and one change was made — a timeout fix, which took
+two attempts; the first was ineffective and is documented below.** No scoring
 constants were retuned, for a reason set out below.
 
 ## The model is not the problem
@@ -128,18 +129,53 @@ honest outcomes turns every constant here from a prior into something fittable.
 
 One thing, and it was a real defect rather than a tuning opinion:
 
+`roofiq-v4-refresh-start` had been failing nightly with *"canceling statement due
+to statement timeout"*. The global default is `statement_timeout = 120000` (2
+minutes, from the configuration file); scoring 87k properties over 277k hail
+events in one insert does not fit.
+
+**The first attempt at this did not work, and the run on 2026-09-11 failed
+exactly as before, at 121 seconds.** It set the timeout on the functions:
+
 ```sql
+-- ineffective for this job; kept but load-bearing on nothing
 alter function public.roofiq_v4_refresh_start()  set statement_timeout = '20min';
 alter function public.roofiq_shadow_score_v5()   set statement_timeout = '20min';
 ```
 
-`roofiq-v4-refresh-start` had been failing nightly with *"canceling statement due
-to statement timeout"*. The database default is 2 minutes; scoring 87k properties
-over 277k hail events in one insert does not fit.
+A function-scoped `SET` does not extend a statement that is already running.
+PostgreSQL arms the statement-timeout timer when the **top-level** statement
+starts, using the session value at that moment. `pg_cron` ran
+`select roofiq_v4_refresh_start();` as the top-level statement, so the timer was
+armed at 2 minutes before the function body — and its `SET` — was ever reached.
 
-Set on the functions rather than globally or on the `postgres` role: a
-function-scoped `SET` applies only for that call and is inherited by what it
-calls, so ordinary queries keep the 2-minute guard protecting the API.
+Proven rather than reasoned about, in a rolled-back transaction:
+
+```sql
+set statement_timeout = '1s';
+create function pg_temp.timeout_probe() returns int
+  language plpgsql set statement_timeout = '30s' as $$
+begin perform pg_sleep(3); return 1; end $$;
+select pg_temp.timeout_probe();
+-- ERROR: canceling statement due to statement timeout
+```
+
+The fix is to raise the timeout in a **separate statement before** the long one,
+which is what the cron command now does:
+
+```sql
+select cron.alter_job(
+  job_id := 95,
+  command := $cmd$set statement_timeout = '20min'; select roofiq_v4_refresh_start();$cmd$
+);
+```
+
+Verified by the same probe shape: a `pg_sleep(3)` preceded by its own
+`set statement_timeout = '30s'` completes under a session that was at 1s.
+
+This keeps the blast radius right. The 2-minute guard still protects every
+ordinary query and the API roles (`anon` 3s, `authenticated` 8s); only this one
+nightly job runs long.
 
 **Batching was rejected.** Bands come from
 `percent_rank() over (partition by organization_id order by dmg)`, and a window
