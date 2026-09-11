@@ -63,3 +63,12 @@ comment on view public.rep_route_leads is
    querying user (security_invoker), so org RLS on the base tables still applies.';
 
 grant select on public.rep_route_leads to authenticated;
+
+-- The public schema's default privileges hand `anon` full rights on any newly
+-- created view. security_invoker already prevents a leak (anon holds no grant on
+-- okc_launch_cut and no RLS policy on properties grants it rows), but that is
+-- defence by accident rather than by intent. State it outright: this view is for
+-- signed-in reps, and read-only even for them.
+revoke all on public.rep_route_leads from anon;
+revoke insert, update, delete, truncate, references, trigger
+  on public.rep_route_leads from authenticated;

@@ -43,11 +43,12 @@ row-level security, not key secrecy, is what protects the data. Never put the
 
 ## Required database migration
 
-The app reads a single view, `public.rep_route_leads`. Apply it before first run:
+The app reads a single view, `public.rep_route_leads`.
 
-```
-supabase/migrations/20260911000000_rep_route_leads_view.sql
-```
+**Status: applied to `roofiq-ai` on 2026-09-11.** It returns 4,797 rows across 30
+zones, every one carrying valid lat/lon. Re-apply it from
+`supabase/migrations/20260911000000_rep_route_leads_view.sql` if you rebuild the
+project or spin up a branch.
 
 It exists for two concrete reasons:
 
@@ -60,6 +61,12 @@ It exists for two concrete reasons:
 The view is declared `security_invoker = true`, so it runs as the querying user
 and the existing RLS policies still apply. A view without that flag would run as
 its owner and silently bypass row-level security.
+
+Privileges end up as `authenticated: SELECT` and nothing for `anon`. The public
+schema's default privileges grant `anon` full rights on any new view, so the
+migration revokes them explicitly. `security_invoker` already blocks anon — it
+holds no grant on `okc_launch_cut`, verified by querying the view as that role —
+but the revoke means access does not depend on that chain staying intact.
 
 ## Deploying to Cloudflare Pages
 
@@ -163,3 +170,29 @@ Zone 04 is Edmond, while the launch cut's Zone 04 is Luther. Treat the Supabase
 **Satellite imagery is not free.** Roof measurement needs high-resolution
 imagery, and Google and Mapbox both bill per load. That feature is deliberately
 not built here; everything above runs at no cost.
+
+**The re-roofed banner will be empty for this launch cut, correctly.** 148
+properties carry `has_recent_roof_permit`, but none of them are in
+`okc_launch_cut` — the model already excluded them upstream. The dashboard card
+and the dimmed route rows are there for future cuts that may not filter as
+cleanly.
+
+## Why not host this on Supabase?
+
+Supabase has no static hosting product. Two workarounds exist and both are worse
+than Cloudflare Pages:
+
+- **Storage public bucket.** Serves files, but there is no SPA fallback, so a
+  refresh on `/zone/...` returns 404 rather than `index.html`, and there is no
+  way to set the cache or security headers in `public/_headers`.
+- **An Edge Function serving HTML.** Supabase's own limits page states that
+  serving HTML content is only supported with a custom domain — otherwise `GET`
+  requests returning `text/html` are rewritten to `text/plain`, so the browser
+  shows source instead of a page. Custom domains are a paid add-on. It also
+  notes static files cannot be deployed via the API flag, and functions cap at
+  256 MB memory and 2s CPU per request. Paying compute to serve bytes a CDN
+  serves for free is the wrong shape.
+
+Supabase's own docs treat hosting as a separate concern, with integration guides
+for Vercel and Netlify. The intended split is what this repo does: Supabase for
+Postgres, auth and realtime; a CDN for the front end.
