@@ -129,6 +129,61 @@ city names in play, casing variants can split a vote and misname a zone.
 *Fix:* normalise on write, and vote on the normalised value. Worth doing before
 expansion rather than after — 7× the rows is 7× the cleanup.
 
+## Is there a free path?
+
+**No — and not only for the expansion. There is no free way to unblock what is
+already there.** This was checked rather than assumed, and all four reclaim
+avenues came back empty:
+
+| Avenue | Finding |
+|---|---|
+| Dead-tuple bloat | **None.** No table has >1,000 dead tuples; autovacuum is current. |
+| Unused indexes | **None worth having.** Every index over 1 MB is being scanned except one 3.6 MB primary key. |
+| Oversized columns | `properties.score_breakdown` is 738 bytes on every row — **61.5 MB**, 38% of the average row. But five functions reference it, including `opportunity_property_detail`. It is in use, not dead weight. |
+| Duplicate tables | `property_storm_summary` (73 MB) and `property_storm_summaries` (49 MB) look redundant, but both are live: their indexes take 170,643 and 581,915 scans. |
+
+Best case is roughly **65 MB** of reclaim against a **391 MB** gap, and the
+largest piece of it is load-bearing. The 891 MB is real data.
+
+### The pruning trap
+
+The obvious move — delete the bottom bands — does not work, and it is worth
+understanding why before someone tries it.
+
+Bands are **percentiles**, not absolute damage thresholds. Band D is 50.05% of
+the table *by definition*. Delete all 43,747 D properties and the remaining
+43,652 are re-ranked on the next refresh, and **a new bottom 50% becomes D**.
+You can do that forever and never converge. Pruning by band only works if the
+bands are first frozen to absolute score cutoffs, which is a change to the
+scoring contract.
+
+### The arithmetic on expansion
+
+Central Oklahoma at ~600,000 properties against a 500 MB ceiling allows
+**0.87 KB per property, all-in** — geometry, storm history, owner records,
+scoring shadow tables and every index. Today's figure is 10.2 KB. That is not a
+tuning gap; it is **roughly 12× off**. Switching to another free Postgres tier
+does not change it, since those ceilings are the same order of magnitude.
+
+### What it actually costs
+
+This is a ~$25/month problem, not a free one. Supabase Pro includes 8 GB, which
+covers the ~6 GB projection with headroom and unblocks the current stall
+immediately. (Confirm current pricing directly — it could not be reached from
+the environment this was written in.)
+
+### The one architecture that would stretch further
+
+If staying free mattered more than anything else, the shape that works is
+**score wide, store thin**: enrich fully only the A1/A2 slice reps actually
+route, and keep a minimal row for everything else that exists solely to compute
+percentiles. At 600k properties that is roughly 33k enriched plus 567k thin.
+
+It is a real architecture, and it is also a real rewrite — a second narrow
+property table, a two-tier enrichment pipeline, and scoring that reads across
+both. Given the goal of preserving the current architecture, paying for storage
+is the cheaper answer by a wide margin.
+
 ## Recommended order
 
 1. **Move off the free plan.** Nothing else can proceed; ingestion is stalled
