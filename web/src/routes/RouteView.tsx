@@ -25,6 +25,8 @@ export default function RouteView() {
   const [error, setError] = useState<string | null>(null)
   const [optimized, setOptimized] = useState(false)
   const [hideDone, setHideDone] = useState(true)
+  const [bandFilter, setBandFilter] = useState<string | null>(null)
+  const [mineOnly, setMineOnly] = useState(false)
 
   useEffect(() => {
     fetchZoneLeads(zoneName).then(setLeads).catch((e) => setError(e.message))
@@ -37,8 +39,11 @@ export default function RouteView() {
       // rather than wherever the launch cut happened to begin.
       ? optimizeWalkOrder(leads, (l) => -(l.rank_score ?? 9999))
       : [...leads].sort((a, b) => (a.stop_order ?? 0) - (b.stop_order ?? 0))
-    return hideDone ? base.filter((l) => !(l.lead_status && DONE.has(l.lead_status))) : base
-  }, [leads, optimized, hideDone])
+    let out = hideDone ? base.filter((l) => !(l.lead_status && DONE.has(l.lead_status))) : base
+    if (bandFilter) out = out.filter((l) => l.band === bandFilter)
+    if (mineOnly) out = out.filter((l) => l.assigned_to === session.user.id)
+    return out
+  }, [leads, optimized, hideDone, bandFilter, mineOnly, session.user.id])
 
   const savedMiles = useMemo(() => {
     if (!leads || leads.length < 3) return null
@@ -61,6 +66,7 @@ export default function RouteView() {
   if (!leads) return <Spinner label="Loading route" />
 
   const done = leads.filter((l) => l.lead_status && DONE.has(l.lead_status)).length
+  const bands = [...new Set(leads.map((l) => l.band).filter(Boolean))].sort() as string[]
 
   return (
     <div className="p-4">
@@ -85,6 +91,21 @@ export default function RouteView() {
         <Button tone="muted" onClick={() => setHideDone((v) => !v)}>
           {hideDone ? 'Hiding worked' : 'Showing all'}
         </Button>
+        <Button
+          tone={mineOnly ? 'primary' : 'muted'}
+          onClick={() => setMineOnly((v) => !v)}
+        >
+          {mineOnly ? 'Mine only' : 'All reps'}
+        </Button>
+        {bands.map((b) => (
+          <Button
+            key={b}
+            tone={bandFilter === b ? 'primary' : 'muted'}
+            onClick={() => setBandFilter((v) => (v === b ? null : b))}
+          >
+            {b}
+          </Button>
+        ))}
       </div>
 
       {!ordered.length ? (
@@ -148,7 +169,12 @@ function LeadCard({
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-2">
-              <h2 className="min-w-0 truncate font-semibold">{address}</h2>
+              <Link
+                to={`/lead/${lead.property_id}`}
+                className="min-w-0 truncate font-semibold underline-offset-2 hover:underline"
+              >
+                {address}
+              </Link>
               <BandBadge band={lead.band} />
             </div>
             <p className="mt-0.5 truncate text-sm text-ink-400">

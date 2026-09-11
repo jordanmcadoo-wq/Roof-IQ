@@ -1,5 +1,7 @@
 import { supabase } from '@/lib/supabase'
-import type { LeadStatus, RouteLead } from '@/lib/types'
+import type {
+  Activity, AiInsight, LeadStatus, LeadTask, Opportunity, PropertyHit, RouteLead,
+} from '@/lib/types'
 
 const LEAD_COLUMNS =
   'property_id, zone_name, stop_order, band, rank_score, top300, zone_city, territory_id,' +
@@ -115,4 +117,126 @@ function humanise(message: string): string {
     )
   }
   return message
+}
+
+const PROPERTY_COLUMNS =
+  'id, property_address, city, owner_name, mailing_address, market_value, lead_status,' +
+  'sales_priority_band, sales_rank_score, sales_action_timing, has_recent_roof_permit,' +
+  'latest_storm_at, assigned_to'
+
+/**
+ * Search every property in the org, not just the launch cut.
+ *
+ * This is the thing the Base44 extract structurally cannot do: it holds one
+ * frozen 4,797-row slice, while `properties` carries the whole scored book. A
+ * rep standing on a street that was not in the cut can still look the address
+ * up here.
+ */
+export async function searchProperties(term: string): Promise<PropertyHit[]> {
+  // PostgREST parses or() as a comma-separated list and treats ()., specially,
+  // so those characters have to go before the term is interpolated - 602 of
+  // these addresses contain a comma, and a rep typing "123 Main St, OKC" would
+  // otherwise send a malformed filter. % and _ are escaped so they stay literal
+  // rather than acting as LIKE wildcards.
+  const q = term.trim().replace(/[(),.]/g, ' ').replace(/\s+/g, ' ').trim()
+  if (q.length < 3) return []
+  const pattern = `%${q.replace(/[%_\\]/g, (m) => '\\' + m)}%`
+
+  const { data, error } = await supabase
+    .from('properties')
+    .select(PROPERTY_COLUMNS)
+    // normalized_address is what the pipeline matches on; property_address is
+    // what a rep reads off a mailbox. Search both so either spelling lands.
+    .or(`property_address.ilike.${pattern},normalized_address.ilike.${pattern},owner_name.ilike.${pattern}`)
+    .order('sales_rank_score', { ascending: false, nullsFirst: false })
+    .limit(60)
+
+  if (error) throw new Error(error.message)
+  return (data ?? []) as unknown as PropertyHit[]
+}
+
+export async function fetchProperty(propertyId: string): Promise<PropertyHit | null> {
+  const { data, error } = await supabase
+    .from('properties')
+    .select(PROPERTY_COLUMNS + ', year_built, roof_age_estimate, roof_type, roof_condition, building_area, owner_occupied, contact_phone, contact_name, lead_value_estimate, sales_evidence_quality, last_contacted_at')
+    .eq('id', propertyId)
+    .maybeSingle()
+  if (error) throw new Error(error.message)
+  return (data ?? null) as unknown as PropertyHit | null
+}
+
+export async function fetchStormSummary(propertyId: string) {
+  const { data } = await supabase
+    .from('property_storm_summary')
+    .select('strongest_hail_inches, strongest_wind_mph, latest_storm_at, storm_event_count, storm_confidence, storm_score, nearest_verified_report_miles')
+    .eq('property_id', propertyId)
+    .maybeSingle()
+  return data
+}
+
+export async function fetchInsight(propertyId: string): Promise<AiInsight | null> {
+  const { data } = await supabase
+    .from('property_ai_insights')
+    .select('summary, next_action, rationale, confidence, opportunity_level, cautions, generated_at')
+    .eq('property_id', propertyId)
+    .order('generated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  return (data ?? null) as AiInsight | null
+}
+
+export async function fetchActivities(propertyId: string): Promise<Activity[]> {
+  const { data } = await supabase
+    .from('activities')
+    .select('id, activity_type, summary, occurred_at')
+    .eq('property_id', propertyId)
+    .order('occurred_at', { ascending: false })
+    .limit(20)
+  return (data ?? []) as Activity[]
+}
+
+/** Opportunities and tasks with a date attached, soonest first. */
+export async function fetchFollowups(): Promise<{
+  opportunities: (Opportunity & { address?: string | null })[]
+  tasks: (LeadTask & { address?: string | null })[]
+}> {
+  const [opps, tasks] = await Promise.all([
+    supabase
+      .from('opportunities')
+      .select('id, property_id, stage, probability, estimated_contract_value, next_action_type, next_action_at, appointment_at, inspection_at')
+      .or('next_action_at.not.is.null,appointment_at.not.is.null')
+      .order('next_action_at', { ascending: true, nullsFirst: false })
+      .limit(100),
+    supabase
+      .from('lead_tasks')
+      .select('id, property_id, title, description, due_at, priority, status')
+      .neq('status', 'completed')
+      .order('due_at', { ascending: true, nullsFirst: false })
+      .limit(100),
+  ])
+
+  const ids = [
+    ...(opps.data ?? []).map((o) => o.property_id),
+    ...(tasks.data ?? []).map((t) => t.property_id),
+  ].filter(Boolean)
+
+  const addresses = new Map<string, string | null>()
+  if (ids.length) {
+    const { data } = await supabase
+      .from('properties')
+      .select('id, property_address')
+      .in('id', [...new Set(ids)])
+    for (const p of data ?? []) addresses.set(p.id as string, p.property_address as string | null)
+  }
+
+  return {
+    opportunities: (opps.data ?? []).map((o) => ({
+      ...(o as unknown as Opportunity),
+      address: addresses.get(o.property_id as string) ?? null,
+    })),
+    tasks: (tasks.data ?? []).map((t) => ({
+      ...(t as unknown as LeadTask),
+      address: addresses.get(t.property_id as string) ?? null,
+    })),
+  }
 }

@@ -65,3 +65,60 @@ export const DOOR_OUTCOMES: { value: LeadStatus; label: string; tone: Tone }[] =
 ]
 
 export type Tone = 'go' | 'act' | 'neutral' | 'muted'
+
+/** A property found by search, from public.properties directly. */
+export type PropertyHit = {
+  id: string
+  property_address: string | null
+  city: string | null
+  owner_name: string | null
+  mailing_address: string | null
+  market_value: number | null
+  lead_status: LeadStatus | null
+  sales_priority_band: string | null
+  sales_rank_score: number | null
+  sales_action_timing: string | null
+  has_recent_roof_permit: boolean | null
+  latest_storm_at: string | null
+  assigned_to: string | null
+}
+
+/** What the scoring model concluded about one property. */
+export type AiInsight = {
+  summary: string | null
+  next_action: string | null
+  rationale: string | null
+  confidence: number | null
+  opportunity_level: string | null
+  cautions: unknown
+  generated_at: string | null
+}
+
+export type Opportunity = {
+  id: string
+  stage: string | null
+  probability: number | null
+  estimated_contract_value: number | null
+  next_action_type: string | null
+  next_action_at: string | null
+  appointment_at: string | null
+  inspection_at: string | null
+  property_id: string
+}
+
+export type LeadTask = {
+  id: string
+  property_id: string
+  title: string | null
+  description: string | null
+  due_at: string | null
+  priority: string | null
+  status: string | null
+}
+
+export type Activity = {
+  id: string
+  activity_type: string | null
+  summary: string | null
+  occurred_at: string | null
+}

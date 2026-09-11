@@ -4,6 +4,9 @@ import { supabase } from '@/lib/supabase'
 import Zones from '@/routes/Zones'
 import RouteView from '@/routes/RouteView'
 import Dashboard from '@/routes/Dashboard'
+import LeadDetail from '@/routes/LeadDetail'
+import Search from '@/routes/Search'
+import Followups from '@/routes/Followups'
 import { cx } from '@/components/ui/primitives'
 
 export default function App() {
@@ -41,6 +44,9 @@ function Shell() {
         <Routes>
           <Route path="/" element={<Zones />} />
           <Route path="/zone/:zone" element={<RouteView />} />
+          <Route path="/lead/:id" element={<LeadDetail />} />
+          <Route path="/search" element={<Search />} />
+          <Route path="/followups" element={<Followups />} />
           <Route path="/pipeline" element={<Dashboard />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
@@ -49,6 +55,8 @@ function Shell() {
       <nav className="fixed inset-x-0 bottom-0 border-t border-ink-800 bg-ink-950/95 backdrop-blur">
         <div className="mx-auto flex max-w-2xl">
           <Tab to="/" label="Route" />
+          <Tab to="/search" label="Search" />
+          <Tab to="/followups" label="Follow-ups" />
           <Tab to="/pipeline" label="Pipeline" />
         </div>
       </nav>
