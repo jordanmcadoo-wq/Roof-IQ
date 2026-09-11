@@ -43,8 +43,19 @@ Base44's direct file and shell access (`sandbox-bridge`) requires the Builder
 plan. On the free tier, application changes go through the Base44 builder UI, and
 schema and record changes go through the entity APIs.
 
+## Front end
+
+A React field app for reps lives in [`web/`](./web), reading directly from the
+`roofiq-ai` Supabase project. See [docs/frontend.md](./docs/frontend.md) for
+setup, the required database migration, and Cloudflare Pages deployment.
+
+```bash
+cd web && npm install && cp .env.example .env && npm run dev
+```
+
 ## Documentation
 
+- [Front end](./docs/frontend.md) — the rep field app: stack, setup, deploy
 - [Upgrades — September 2026](./docs/upgrades-2026-09.md) — data health, rep field
   workflow, manager dashboard, roof measurement and permit matching
 - [Data quality audit](./docs/data-quality-audit.md) — defects found in the launch

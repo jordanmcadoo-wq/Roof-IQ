@@ -1,0 +1,10 @@
+{
+  "name": "RoofIQ Field",
+  "short_name": "RoofIQ",
+  "description": "Hail-storm door-knock routing for roofing reps",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#070b14",
+  "theme_color": "#0b1220"
+}

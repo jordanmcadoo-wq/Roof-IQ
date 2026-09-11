@@ -1,0 +1,67 @@
+/** Mirrors public.rep_route_leads (see supabase/migrations). */
+export type RouteLead = {
+  property_id: string
+  zone_name: string
+  stop_order: number | null
+  band: string | null
+  rank_score: number | null
+  top300: boolean | null
+  zone_city: string | null
+  territory_id: string | null
+  lat: number | null
+  lon: number | null
+  organization_id: string
+  property_address: string | null
+  owner_name: string | null
+  mailing_address: string | null
+  market_value: number | null
+  year_built: number | null
+  building_area: number | null
+  owner_occupied: boolean | null
+  lead_status: LeadStatus | null
+  lead_priority: 'low' | 'medium' | 'high' | 'critical' | null
+  assigned_to: string | null
+  contact_name: string | null
+  contact_phone: string | null
+  last_contacted_at: string | null
+  has_recent_roof_permit: boolean | null
+  roof_age_estimate: number | null
+  sales_priority_band: string | null
+  sales_action_timing: string | null
+  sales_evidence_quality: string | null
+  lead_value_estimate: number | null
+  strongest_hail_inches: number | null
+  strongest_wind_mph: number | null
+  latest_storm_at: string | null
+  storm_event_count: number | null
+  storm_confidence: string | null
+  storm_score: number | null
+}
+
+/** public.lead_status enum, verbatim. */
+export type LeadStatus =
+  | 'new' | 'researching' | 'assigned' | 'route_ready' | 'knocked'
+  | 'contact_made' | 'inspection_scheduled' | 'inspection_complete'
+  | 'estimate_sent' | 'contract_signed' | 'not_qualified' | 'closed'
+  | 'attempted' | 'contacted' | 'inspection_set' | 'claim_filed'
+  | 'estimate' | 'sold' | 'lost' | 'do_not_contact'
+
+export type Profile = {
+  id: string
+  organization_id: string
+  display_name: string | null
+  role: string | null
+  email: string | null
+}
+
+/** The subset a rep sets at the door, in the order they'd reach for them. */
+export const DOOR_OUTCOMES: { value: LeadStatus; label: string; tone: Tone }[] = [
+  { value: 'contact_made',        label: 'Talked to owner', tone: 'go' },
+  { value: 'knocked',             label: 'Not home',        tone: 'neutral' },
+  { value: 'inspection_set',      label: 'Inspection set',  tone: 'go' },
+  { value: 'sold',                label: 'Sold',            tone: 'go' },
+  { value: 'not_qualified',       label: 'Not qualified',   tone: 'muted' },
+  { value: 'do_not_contact',      label: 'Do not contact',  tone: 'act' },
+]
+
+export type Tone = 'go' | 'act' | 'neutral' | 'muted'
