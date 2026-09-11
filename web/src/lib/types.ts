@@ -122,3 +122,34 @@ export type Activity = {
   summary: string | null
   occurred_at: string | null
 }
+
+/** One qualifying hail event at a property, from public.property_hail_events. */
+export type HailEvent = {
+  event_date: string
+  source: string
+  size_inches: number | null
+  distance_miles: number | null
+  detection_count: number | null
+}
+
+/** MRMS radar-grid detail: the precise half of the evidence. */
+export type MrmsDetail = {
+  latest_event_at: string | null
+  max_mesh_inches: number | null
+  strongest_threshold_inches: number | null
+  direct_intersection: boolean | null
+  distance_to_swath_miles: number | null
+  qualifying_swath_count: number | null
+  corroborated_report_count: number | null
+  confidence_label: string | null
+  accumulation_minutes: number | null
+  source_freshness: string | null
+}
+
+export type WindExposure = {
+  event_date: string | null
+  wind_speed_mph: number | null
+  distance_miles: number | null
+  days_since: number | null
+  event_count: number | null
+}

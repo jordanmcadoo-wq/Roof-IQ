@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase'
 import type {
-  Activity, AiInsight, LeadStatus, LeadTask, Opportunity, PropertyHit, RouteLead,
+  Activity, AiInsight, HailEvent, LeadStatus, LeadTask, MrmsDetail, Opportunity,
+  PropertyHit, RouteLead, WindExposure,
 } from '@/lib/types'
 
 const LEAD_COLUMNS =
@@ -239,4 +240,42 @@ export async function fetchFollowups(): Promise<{
       address: addresses.get(t.property_id as string) ?? null,
     })),
   }
+}
+
+/**
+ * Every qualifying hail event at a property, newest first.
+ *
+ * Two sources with materially different precision, and the UI must not blur
+ * them: MRMS is a radar grid product, so a hit means the swath covered this
+ * parcel. SWDI is storm-cell attribution within roughly two miles, which the
+ * scoring model already discounts. Showing source and distance per event lets
+ * a rep judge the evidence instead of trusting one blended number.
+ */
+export async function fetchHailEvents(propertyId: string): Promise<HailEvent[]> {
+  const { data, error } = await supabase
+    .from('property_hail_events')
+    .select('event_date, source, size_inches, distance_miles, detection_count')
+    .eq('property_id', propertyId)
+    .order('event_date', { ascending: false })
+    .limit(50)
+  if (error) throw new Error(error.message)
+  return (data ?? []) as HailEvent[]
+}
+
+export async function fetchMrmsDetail(propertyId: string): Promise<MrmsDetail | null> {
+  const { data } = await supabase
+    .from('property_mrms_hail_summary')
+    .select('latest_event_at, max_mesh_inches, strongest_threshold_inches, direct_intersection, distance_to_swath_miles, qualifying_swath_count, corroborated_report_count, confidence_label, accumulation_minutes, source_freshness')
+    .eq('property_id', propertyId)
+    .maybeSingle()
+  return (data ?? null) as MrmsDetail | null
+}
+
+export async function fetchWindExposure(propertyId: string): Promise<WindExposure | null> {
+  const { data } = await supabase
+    .from('property_wind_exposure')
+    .select('event_date, wind_speed_mph, distance_miles, days_since, event_count')
+    .eq('property_id', propertyId)
+    .maybeSingle()
+  return (data ?? null) as WindExposure | null
 }

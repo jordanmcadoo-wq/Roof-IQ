@@ -1,14 +1,17 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
-  fetchActivities, fetchInsight, fetchProperty, fetchStormSummary,
+  fetchActivities, fetchHailEvents, fetchInsight, fetchMrmsDetail,
+  fetchProperty, fetchWindExposure,
 } from '@/lib/leads'
-import type { Activity, AiInsight, PropertyHit } from '@/lib/types'
-import { compactMoney, hail, money, relativeDays } from '@/lib/format'
+import type {
+  Activity, AiInsight, HailEvent, MrmsDetail, PropertyHit, WindExposure,
+} from '@/lib/types'
+import { StormHistory } from '@/components/StormHistory'
+import { compactMoney, money, relativeDays } from '@/lib/format'
 import { mapsUrl } from '@/lib/geo'
 import { Badge, BandBadge, Button, Card, ErrorNote, Spinner } from '@/components/ui/primitives'
 
-type Storm = Awaited<ReturnType<typeof fetchStormSummary>>
 type Extra = PropertyHit & {
   year_built?: number | null
   roof_age_estimate?: number | null
@@ -26,9 +29,11 @@ type Extra = PropertyHit & {
 export default function LeadDetail() {
   const { id = '' } = useParams()
   const [prop, setProp] = useState<Extra | null>(null)
-  const [storm, setStorm] = useState<Storm>(null)
   const [insight, setInsight] = useState<AiInsight | null>(null)
   const [acts, setActs] = useState<Activity[]>([])
+  const [hail, setHailEvents] = useState<HailEvent[]>([])
+  const [mrms, setMrms] = useState<MrmsDetail | null>(null)
+  const [wind, setWind] = useState<WindExposure | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -36,11 +41,13 @@ export default function LeadDetail() {
     let live = true
     setLoading(true)
     Promise.all([
-      fetchProperty(id), fetchStormSummary(id), fetchInsight(id), fetchActivities(id),
+      fetchProperty(id), fetchInsight(id), fetchActivities(id),
+      fetchHailEvents(id), fetchMrmsDetail(id), fetchWindExposure(id),
     ])
-      .then(([p, s, i, a]) => {
+      .then(([p, i, a, h, m, w]) => {
         if (!live) return
-        setProp(p as Extra); setStorm(s); setInsight(i); setActs(a)
+        setProp(p as Extra); setInsight(i); setActs(a)
+        setHailEvents(h); setMrms(m); setWind(w)
       })
       .catch((e) => live && setError(e.message))
       .finally(() => live && setLoading(false))
@@ -112,17 +119,7 @@ export default function LeadDetail() {
         </Card>
       )}
 
-      <Section title="Storm evidence">
-        <Facts rows={[
-          ['Max hail', hail(storm?.strongest_hail_inches ?? null)],
-          ['Max wind', storm?.strongest_wind_mph != null ? `${storm.strongest_wind_mph} mph` : '—'],
-          ['Storms recorded', storm?.storm_event_count ?? '—'],
-          ['Most recent', relativeDays(storm?.latest_storm_at ?? prop.latest_storm_at)],
-          ['Confidence', storm?.storm_confidence?.replace(/_/g, ' ') ?? '—'],
-          ['Nearest report', storm?.nearest_verified_report_miles != null
-            ? `${storm.nearest_verified_report_miles} mi` : '—'],
-        ]} />
-      </Section>
+      <StormHistory events={hail} mrms={mrms} wind={wind} />
 
       <Section title="Property">
         <Facts rows={[
