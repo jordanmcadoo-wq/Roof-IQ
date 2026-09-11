@@ -92,11 +92,18 @@ where a.organization_id = v_org
 assignment** because a hailstorm two counties away out-ranked it. This is already
 true of every rebuild today; expansion makes it far more likely.
 
-*Fix:* band within a geographic partition rather than org-wide — `partition by
-organization_id, county` (or by metro area) — so a Cleveland County surge cannot
-demote an Edmond lead. Alternatively, protect worked leads from the delete by
-exempting any property with an activity or an open assignment. Both are small
-changes. Note that banding per-partition is not the same mistake as batching the
+**The assignment half of this is now fixed** — migration
+`20260911180000_protect_worked_leads_in_launch_cut.sql`. A lead that has been
+worked and is still open stays *in* the cut, so the rep can finish the door; a
+lead worked to a terminal outcome (sold, lost, do_not_contact, not_qualified)
+leaves the route as it should but keeps its assignment as the record of who
+worked it. Only genuinely untouched leads are reaped, which was the original
+intent.
+
+*Still open:* band within a geographic partition rather than org-wide —
+`partition by organization_id, county` (or by metro area) — so a Cleveland
+County surge cannot demote an Edmond lead. That one matters only when the
+footprint widens. Note that banding per-partition is not the same mistake as batching the
 refresh: the partition is a real population boundary, not an arbitrary slice.
 
 ### 3. County and zone naming are hardcoded to Oklahoma County
