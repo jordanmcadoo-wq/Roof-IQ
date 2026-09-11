@@ -1,0 +1,22 @@
+# Cloudflare Pages header rules. First match wins per header, most specific first.
+
+# Vite fingerprints these filenames, so a given URL's bytes never change.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# The shell must never be cached, or a deploy leaves reps on stale JS that
+# points at asset hashes the CDN no longer serves.
+/index.html
+  Cache-Control: no-cache, must-revalidate
+
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Cross-Origin-Opener-Policy: same-origin
+  Permissions-Policy: camera=(), microphone=(), payment=(), interest-cohort=(), geolocation=(self)
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  # style-src allows inline because progress bars set width via a style attribute.
+  # connect-src is pinned to the roofiq-ai project: PostgREST over https, realtime
+  # over wss. Widen this if you point the app at a different Supabase project.
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://bmnhxvdnvytdrpqgvxts.supabase.co wss://bmnhxvdnvytdrpqgvxts.supabase.co; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'

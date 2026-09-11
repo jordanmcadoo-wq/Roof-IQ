@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+/* Field-first palette. Reps work outdoors on phones: dark ground to cut glare
+   and save OLED battery, with saturated accents reserved for urgency only. */
+@theme {
+  --color-ink-950: #070b14;
+  --color-ink-900: #0b1220;
+  --color-ink-800: #131c2e;
+  --color-ink-700: #1e2a42;
+  --color-ink-600: #2c3b58;
+  --color-ink-400: #64748b;
+  --color-ink-300: #94a3b8;
+  --color-ink-200: #cbd5e1;
+  --color-ink-50:  #f1f5f9;
+
+  --color-act-500: #f43f5e;
+  --color-act-400: #fb7185;
+  --color-warm-500: #f59e0b;
+  --color-go-500:  #10b981;
+  --color-go-400:  #34d399;
+  --color-cool-500: #38bdf8;
+}
+
+html, body, #root { height: 100%; }
+
+body {
+  background: var(--color-ink-950);
+  color: var(--color-ink-50);
+  -webkit-font-smoothing: antialiased;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Notch and home-indicator safe areas - reps hold this one-handed. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+           env(safe-area-inset-bottom) env(safe-area-inset-left);
+  overscroll-behavior-y: none;
+}
+
+/* Stop iOS zooming the page when a rep taps an input with gloves on. */
+input, select, textarea { font-size: 16px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

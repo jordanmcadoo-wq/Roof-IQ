@@ -1,0 +1,207 @@
+# RoofIQ field front end
+
+A React front end for roofing reps working doors, reading directly from the
+`roofiq-ai` Supabase project. It lives in [`web/`](../web).
+
+## Why this exists
+
+The Base44 app is a field client over one extract — `okc_launch_cut`, 4,797
+rows. The Supabase project behind it holds 87,399 properties, 277,469 hail
+events, permit matching and the v4/v5 scoring model. This front end talks to
+that database directly, so reps see the real model rather than a snapshot of it.
+
+There is no API tier, and none is needed: row-level security on the Supabase
+tables is already org-scoped, and the policies allow a rep to update only leads
+assigned to them. The browser holds a publishable key, and RLS does the rest.
+
+## Stack
+
+| Piece | Choice | Why |
+| --- | --- | --- |
+| Build | Vite + React 18 + TypeScript (strict) | Fast, boring, no framework lock-in |
+| Styling | Tailwind v4 | Design tokens in CSS, no config file to drift |
+| Data | `@supabase/supabase-js` | Talks to Postgres through PostgREST |
+| Hosting | Cloudflare Workers (static assets) | Free tier permits commercial use; Cloudflare's current path for static sites |
+
+Vercel's Hobby plan is restricted to non-commercial personal use, which a
+roofing sales tool is not. Cloudflare Pages carries no such restriction, which
+is why it is the deploy target here.
+
+## Setup
+
+```bash
+cd web
+npm install
+cp .env.example .env      # then fill in the publishable key
+npm run dev
+```
+
+The publishable (anon) key is in the Supabase dashboard under
+**Project Settings → API Keys**. It is designed to sit in a browser bundle —
+row-level security, not key secrecy, is what protects the data. Never put the
+`service_role` key in this file; it bypasses RLS entirely.
+
+## Required database migration
+
+The app reads a single view, `public.rep_route_leads`.
+
+**Status: applied to `roofiq-ai` on 2026-09-11.** It returns 4,797 rows across 30
+zones, every one carrying valid lat/lon. Re-apply it from
+`supabase/migrations/20260911000000_rep_route_leads_view.sql` if you rebuild the
+project or spin up a branch.
+
+It exists for two concrete reasons:
+
+1. `okc_launch_cut` has no foreign key to `properties`, so PostgREST cannot
+   embed the join and the client would otherwise need N+1 round trips.
+2. `geom` is a PostGIS `geography` column. Selected raw over PostgREST it
+   returns EWKB hex, which is useless to a map. The view projects `st_y`/`st_x`
+   into plain numeric `lat`/`lon`.
+
+The view is declared `security_invoker = true`, so it runs as the querying user
+and the existing RLS policies still apply. A view without that flag would run as
+its owner and silently bypass row-level security.
+
+Privileges end up as `authenticated: SELECT` and nothing for `anon`. The public
+schema's default privileges grant `anon` full rights on any new view, so the
+migration revokes them explicitly. `security_invoker` already blocks anon — it
+holds no grant on `okc_launch_cut`, verified by querying the view as that role —
+but the revoke means access does not depend on that chain staying intact.
+
+## Deploying to Cloudflare
+
+The target is **Workers with static assets**, not Pages. Cloudflare's own
+migration guide is explicit about this for new static sites: use
+`wrangler deploy`, never `wrangler pages deploy`. Pages is the older path.
+
+Config lives in `web/wrangler.jsonc`. It is an assets-only project — no `main`
+and no assets `binding`, because there is no Worker script. Adding either would
+be invalid.
+
+### The URL
+
+Once deployed, the app is served at:
+
+```
+https://roofiq-field.<your-workers-subdomain>.workers.dev
+```
+
+`<your-workers-subdomain>` is set once per account (Cloudflare dashboard →
+Workers & Pages → the subdomain shown in the right-hand panel). `wrangler deploy`
+also prints the full URL when it finishes. A custom domain can be attached later
+under the Worker's **Settings → Domains & Routes**.
+
+### Deploying by hand
+
+```bash
+cd web
+export CLOUDFLARE_API_TOKEN=...   # or: npx wrangler login
+npm run deploy
+```
+
+`npm run cf:check` builds and runs `wrangler deploy --dry-run`, which validates
+the config without contacting the account or needing credentials.
+
+### Deploying from CI
+
+`.github/workflows/deploy-field-app.yml` builds and deploys on pushes to `main`
+that touch `web/`. It needs, in repo settings:
+
+| Kind | Name | Value |
+| --- | --- | --- |
+| Secret | `CLOUDFLARE_API_TOKEN` | Token with **Account → Workers Scripts → Edit** |
+| Secret | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare dashboard sidebar |
+| Variable | `VITE_SUPABASE_URL` | `https://bmnhxvdnvytdrpqgvxts.supabase.co` |
+| Variable | `VITE_SUPABASE_PUBLISHABLE_KEY` | The publishable key |
+
+Create the token at **My Profile → API Tokens → Create Token**, using the
+**Edit Cloudflare Workers** template. Nothing here needs Zone or DNS scope.
+
+Vite inlines `VITE_*` variables at **build** time, not runtime, so they must be
+present before the build step. Adding them afterwards requires a rebuild.
+
+The Supabase values are repo *variables*, not secrets, on purpose: the
+publishable key is meant to ship inside the browser bundle, and row-level
+security guards the data. Marking it secret would imply a protection it does not
+provide while making rotation harder.
+
+### Routing and headers
+
+`wrangler.jsonc` sets `assets.not_found_handling` to `single-page-application`,
+so any path that is not a real file serves `index.html` with `200`. That is what
+makes a hard refresh on `/zone/...` resolve instead of 404. It replaces the
+`_redirects` catch-all that Pages required — which is why that file is gone.
+
+`public/_headers` still applies: Cloudflare supports `_headers` natively on
+Workers static assets. It sets:
+
+- `/assets/*` immutable for a year — Vite fingerprints those filenames
+- `/index.html` `no-cache`, or a deploy strands reps on stale JS pointing at
+  asset hashes that no longer exist
+- A Content-Security-Policy pinned to the `roofiq-ai` Supabase origin over https
+  and wss. `script-src` is `'self'` with no exceptions, which the build satisfies
+  — it emits no inline scripts. `style-src` permits inline only because progress
+  bars set width through a style attribute
+
+**If you point the app at a different Supabase project, update `connect-src` in
+`public/_headers`.** Otherwise the browser blocks every query and the app looks
+broken with nothing useful in the console.
+
+## What it does
+
+- **Zones** — every zone with door count, A1 count, pipeline value and a
+  progress bar showing how much has been worked
+- **Route** — the walk order as large touch targets, one-tap outcomes, notes,
+  Navigate to Google Maps, and Call when a number exists
+- **Optimize walk order** — greedy nearest-neighbour re-sequencing seeded from
+  the best lead, with the mileage it saves shown up front. The launch cut's
+  `stop_order` ignores geography, so routes cross their own path
+- **Pipeline** — live doors, pipeline value, contact rate, inspections, sold,
+  and zones ranked by value
+- **Re-roofed doors** are flagged from `has_recent_roof_permit` and dimmed, so
+  reps skip roofs that have already been replaced
+
+## Things worth knowing
+
+**RLS denials are silent.** A PostgREST update that violates a policy is not an
+error — it simply matches zero rows. `recordDisposition` in `src/lib/leads.ts`
+selects the updated ids back and raises when the set is empty, otherwise a rep
+would see a success state for a write that never landed.
+
+**Reps must be assigned their leads.** The `properties_org_update` policy allows
+an update only when the caller is owner/admin/manager, or when
+`assigned_to = auth.uid()`. Unassigned leads are read-only for a rep by design.
+
+**Zone numbering differs from Base44.** The Base44 export renumbered zones — its
+Zone 04 is Edmond, while the launch cut's Zone 04 is Luther. Treat the Supabase
+`zone_name` as authoritative.
+
+**Satellite imagery is not free.** Roof measurement needs high-resolution
+imagery, and Google and Mapbox both bill per load. That feature is deliberately
+not built here; everything above runs at no cost.
+
+**The re-roofed banner will be empty for this launch cut, correctly.** 148
+properties carry `has_recent_roof_permit`, but none of them are in
+`okc_launch_cut` — the model already excluded them upstream. The dashboard card
+and the dimmed route rows are there for future cuts that may not filter as
+cleanly.
+
+## Why not host this on Supabase?
+
+Supabase has no static hosting product. Two workarounds exist and both are worse
+than Cloudflare Pages:
+
+- **Storage public bucket.** Serves files, but there is no SPA fallback, so a
+  refresh on `/zone/...` returns 404 rather than `index.html`, and there is no
+  way to set the cache or security headers in `public/_headers`.
+- **An Edge Function serving HTML.** Supabase's own limits page states that
+  serving HTML content is only supported with a custom domain — otherwise `GET`
+  requests returning `text/html` are rewritten to `text/plain`, so the browser
+  shows source instead of a page. Custom domains are a paid add-on. It also
+  notes static files cannot be deployed via the API flag, and functions cap at
+  256 MB memory and 2s CPU per request. Paying compute to serve bytes a CDN
+  serves for free is the wrong shape.
+
+Supabase's own docs treat hosting as a separate concern, with integration guides
+for Vercel and Netlify. The intended split is what this repo does: Supabase for
+Postgres, auth and realtime; a CDN for the front end.
