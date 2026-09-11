@@ -1,0 +1,18 @@
+{
+  // Workers with static assets, not Pages. Cloudflare's own migration guide
+  // steers static sites here: `wrangler deploy`, never `wrangler pages deploy`.
+  "name": "roofiq-field",
+  "compatibility_date": "2026-09-11",
+
+  "assets": {
+    "directory": "./dist",
+
+    // Serves index.html with 200 for any path that is not a real file, so a
+    // hard refresh on a deep link like /zone/OKC%20Launch... resolves instead
+    // of 404ing. Replaces the _redirects SPA catch-all Pages needed.
+    "not_found_handling": "single-page-application"
+  }
+
+  // No "main" and no assets "binding": this is an assets-only project with no
+  // Worker script. Adding either would be invalid here.
+}

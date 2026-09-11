@@ -21,7 +21,7 @@ assigned to them. The browser holds a publishable key, and RLS does the rest.
 | Build | Vite + React 18 + TypeScript (strict) | Fast, boring, no framework lock-in |
 | Styling | Tailwind v4 | Design tokens in CSS, no config file to drift |
 | Data | `@supabase/supabase-js` | Talks to Postgres through PostgREST |
-| Hosting | Cloudflare Pages | Free tier permits commercial use; unlimited bandwidth |
+| Hosting | Cloudflare Workers (static assets) | Free tier permits commercial use; Cloudflare's current path for static sites |
 
 Vercel's Hobby plan is restricted to non-commercial personal use, which a
 roofing sales tool is not. Cloudflare Pages carries no such restriction, which
@@ -68,75 +68,84 @@ migration revokes them explicitly. `security_invoker` already blocks anon — it
 holds no grant on `okc_launch_cut`, verified by querying the view as that role —
 but the revoke means access does not depend on that chain staying intact.
 
-## Deploying to Cloudflare Pages
+## Deploying to Cloudflare
 
-The project is named `roofiq-field` (`web/wrangler.toml`). Pick either route.
+The target is **Workers with static assets**, not Pages. Cloudflare's own
+migration guide is explicit about this for new static sites: use
+`wrangler deploy`, never `wrangler pages deploy`. Pages is the older path.
 
-### Route A — Git integration, no CI secrets
+Config lives in `web/wrangler.jsonc`. It is an assets-only project — no `main`
+and no assets `binding`, because there is no Worker script. Adding either would
+be invalid.
 
-Cloudflare builds on every push. Simplest to set up.
+### The URL
 
-1. Cloudflare dashboard → **Workers & Pages** → **Create** → **Pages** →
-   **Connect to Git**, and pick this repository
-2. **Project name:** `roofiq-field`
-3. **Root directory:** `web`
-4. **Build command:** `npm run build`
-5. **Build output directory:** `dist` (relative to the root directory)
-6. Under **Settings → Environment variables**, add for *both* Production and
-   Preview:
-   - `VITE_SUPABASE_URL` → `https://bmnhxvdnvytdrpqgvxts.supabase.co`
-   - `VITE_SUPABASE_PUBLISHABLE_KEY` → the publishable key
+Once deployed, the app is served at:
 
-Vite only inlines variables prefixed `VITE_` at **build** time, so these must be
-set before the build runs. Adding them afterwards requires a redeploy.
+```
+https://roofiq-field.<your-workers-subdomain>.workers.dev
+```
 
-### Route B — GitHub Actions
-
-`.github/workflows/deploy-field-app.yml` builds and deploys on pushes to `main`
-that touch `web/`, and builds every pull request. It needs, in repo settings:
-
-| Kind | Name | Value |
-| --- | --- | --- |
-| Secret | `CLOUDFLARE_API_TOKEN` | Token with **Account → Cloudflare Pages → Edit** |
-| Secret | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare dashboard sidebar |
-| Variable | `VITE_SUPABASE_URL` | `https://bmnhxvdnvytdrpqgvxts.supabase.co` |
-| Variable | `VITE_SUPABASE_PUBLISHABLE_KEY` | The publishable key |
-
-Create the token at **My Profile → API Tokens → Create Token → Custom token**.
-Scope it to Cloudflare Pages Edit on that account only — nothing here needs
-Zone or DNS permissions.
-
-The Supabase values are repo *variables*, not secrets, on purpose: the
-publishable key is meant to ship inside the browser bundle. Row-level security
-guards the data. Marking it secret would imply a protection it does not provide
-and only makes rotation harder.
+`<your-workers-subdomain>` is set once per account (Cloudflare dashboard →
+Workers & Pages → the subdomain shown in the right-hand panel). `wrangler deploy`
+also prints the full URL when it finishes. A custom domain can be attached later
+under the Worker's **Settings → Domains & Routes**.
 
 ### Deploying by hand
 
 ```bash
 cd web
-npx wrangler login          # or export CLOUDFLARE_API_TOKEN
-npm run deploy              # builds, then wrangler pages deploy
+export CLOUDFLARE_API_TOKEN=...   # or: npx wrangler login
+npm run deploy
 ```
 
-### What ships alongside the bundle
+`npm run cf:check` builds and runs `wrangler deploy --dry-run`, which validates
+the config without contacting the account or needing credentials.
 
-`public/_redirects` sends every path to `index.html`, so a hard refresh on a
-deep link like `/zone/OKC%20Launch%20·%20Zone%2008` still resolves.
+### Deploying from CI
 
-`public/_headers` sets cache and security policy:
+`.github/workflows/deploy-field-app.yml` builds and deploys on pushes to `main`
+that touch `web/`. It needs, in repo settings:
 
-- `/assets/*` is immutable for a year — Vite fingerprints those filenames
-- `/index.html` is `no-cache`, or a deploy strands reps on stale JS pointing at
-  asset hashes the CDN no longer serves
-- A Content-Security-Policy pinned to the `roofiq-ai` Supabase origin over both
-  https and wss. `style-src` permits inline because progress bars set width
-  through a style attribute; `script-src` is `'self'` with no exceptions, which
-  the build satisfies — it emits no inline scripts
+| Kind | Name | Value |
+| --- | --- | --- |
+| Secret | `CLOUDFLARE_API_TOKEN` | Token with **Account → Workers Scripts → Edit** |
+| Secret | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare dashboard sidebar |
+| Variable | `VITE_SUPABASE_URL` | `https://bmnhxvdnvytdrpqgvxts.supabase.co` |
+| Variable | `VITE_SUPABASE_PUBLISHABLE_KEY` | The publishable key |
+
+Create the token at **My Profile → API Tokens → Create Token**, using the
+**Edit Cloudflare Workers** template. Nothing here needs Zone or DNS scope.
+
+Vite inlines `VITE_*` variables at **build** time, not runtime, so they must be
+present before the build step. Adding them afterwards requires a rebuild.
+
+The Supabase values are repo *variables*, not secrets, on purpose: the
+publishable key is meant to ship inside the browser bundle, and row-level
+security guards the data. Marking it secret would imply a protection it does not
+provide while making rotation harder.
+
+### Routing and headers
+
+`wrangler.jsonc` sets `assets.not_found_handling` to `single-page-application`,
+so any path that is not a real file serves `index.html` with `200`. That is what
+makes a hard refresh on `/zone/...` resolve instead of 404. It replaces the
+`_redirects` catch-all that Pages required — which is why that file is gone.
+
+`public/_headers` still applies: Cloudflare supports `_headers` natively on
+Workers static assets. It sets:
+
+- `/assets/*` immutable for a year — Vite fingerprints those filenames
+- `/index.html` `no-cache`, or a deploy strands reps on stale JS pointing at
+  asset hashes that no longer exist
+- A Content-Security-Policy pinned to the `roofiq-ai` Supabase origin over https
+  and wss. `script-src` is `'self'` with no exceptions, which the build satisfies
+  — it emits no inline scripts. `style-src` permits inline only because progress
+  bars set width through a style attribute
 
 **If you point the app at a different Supabase project, update `connect-src` in
-`public/_headers`.** Otherwise the browser silently blocks every query and the
-app looks broken with nothing useful in the console.
+`public/_headers`.** Otherwise the browser blocks every query and the app looks
+broken with nothing useful in the console.
 
 ## What it does
 
