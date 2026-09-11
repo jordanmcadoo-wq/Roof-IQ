@@ -2,14 +2,18 @@ name: Deploy field app to Cloudflare Workers
 
 on:
   push:
-    branches: [main]
+    # The working branch is included deliberately. GitHub only shows the
+    # "Run workflow" button for workflows that exist on the DEFAULT branch, so
+    # until this is merged to main, workflow_dispatch is not clickable. A push
+    # trigger on this branch is what actually makes it run before the merge.
+    branches: [main, 'claude/roof-iq-upgrades-x6mtjh']
     paths: ['web/**', '.github/workflows/deploy-field-app.yml']
   pull_request:
     paths: ['web/**']
   workflow_dispatch:
 
 concurrency:
-  group: pages-${{ github.ref }}
+  group: deploy-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -33,10 +37,11 @@ jobs:
       - name: Typecheck and build
         working-directory: web
         env:
-          # Not secrets in any meaningful sense: the publishable key is designed
-          # to ship in the browser bundle, and row-level security is what guards
-          # the data. They live in repo settings so the URL and key can change
-          # without a code edit.
+          # Optional. The app has working defaults compiled in, so leaving these
+          # unset builds against the roofiq-ai project. Set them only to point a
+          # build at a different Supabase project. They are variables rather than
+          # secrets because the publishable key ships in the browser bundle
+          # anyway; RLS, not secrecy, is what guards the data.
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
         run: npm run build
