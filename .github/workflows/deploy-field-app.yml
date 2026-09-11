@@ -46,12 +46,21 @@ jobs:
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
         run: npm run build
 
+      # Pull requests build and typecheck but never deploy. Secrets are not
+      # exposed to fork PRs, and a pull request should not publish to
+      # production regardless.
       - name: Deploy
+        if: github.event_name != 'pull_request'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: web
+          # The action bundles its own wrangler and ignores the version in
+          # package.json. It defaults to v3, which predates assets-only Workers
+          # and fails with "Missing entry-point" because this project has no
+          # `main` - there is no Worker script, only static assets. Pin v4.
+          wranglerVersion: '4.131.0'
           # Workers with static assets, per Cloudflare's migration guidance.
           # `wrangler deploy` reads web/wrangler.jsonc; never `pages deploy`.
           command: deploy
