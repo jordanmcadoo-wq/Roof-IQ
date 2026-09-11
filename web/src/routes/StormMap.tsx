@@ -14,18 +14,45 @@ import { Legend, SelectedLead, isWorked } from '@/components/stormmap/shared'
 const GlCanvas = lazy(() => import('@/components/stormmap/GlCanvas'))
 
 /**
- * A MapLibre style JSON URL. Set it and the map gains a street basemap; leave
- * it unset and the projected-points view is used, which needs no tiles at all.
- *
- * The style is the whole contract, so this works with a self-hosted Protomaps
- * style (whose sources may be pmtiles://, handled in GlCanvas) or any hosted
- * style JSON. Nothing here assumes a particular vendor.
+ * An explicit MapLibre style URL, for a hosted basemap. Usually unset.
  */
-const BASEMAP = (import.meta.env.VITE_BASEMAP_URL ?? '').trim()
+const BASEMAP_OVERRIDE = (import.meta.env.VITE_BASEMAP_URL ?? '').trim()
 
-const ATTRIBUTION = '© OpenStreetMap contributors (ODbL)'
+/**
+ * The self-hosted pair. style.json is committed and ready; the archive is not,
+ * because it is ~100MB of OSM extract that does not belong in git.
+ *
+ * Drop okc.pmtiles into web/public/basemap/ and the map upgrades itself on the
+ * next deploy - no env var, no rebuild flag. Detection is a HEAD against the
+ * archive, which the server answers 404 for when absent (/basemap/ is excluded
+ * from the SPA fallback precisely so this probe means something).
+ */
+const LOCAL_ARCHIVE = '/basemap/okc.pmtiles'
+const LOCAL_STYLE = '/basemap/style.json'
+
+function useBasemap(): { style: string | null; checked: boolean } {
+  const [style, setStyle] = useState<string | null>(BASEMAP_OVERRIDE || null)
+  const [checked, setChecked] = useState(!!BASEMAP_OVERRIDE)
+
+  useEffect(() => {
+    if (BASEMAP_OVERRIDE) return
+    let live = true
+    fetch(LOCAL_ARCHIVE, { method: 'HEAD' })
+      .then((r) => { if (live && r.ok) setStyle(LOCAL_STYLE) })
+      .catch(() => {})
+      .finally(() => { if (live) setChecked(true) })
+    return () => { live = false }
+  }, [])
+
+  return { style, checked }
+}
+
+// Natural Earth is public domain and needs no attribution; OSM is ODbL and
+// does, so the notice stands whenever either layer is drawn.
+const ATTRIBUTION = 'Roads: Natural Earth (public domain). Basemap, when enabled: © OpenStreetMap contributors (ODbL).'
 
 export default function StormMap() {
+  const { style: basemap, checked } = useBasemap()
   const [leads, setLeads] = useState<RouteLead[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [zone, setZone] = useState<string | null>(null)
@@ -78,11 +105,14 @@ export default function StormMap() {
         ))}
       </div>
 
-      {BASEMAP ? (
-        <Suspense fallback={<Spinner label="Loading basemap" />}>
+      {/* Until the probe answers, draw the tile-free canvas rather than a
+          spinner: it needs nothing but the rows already in hand, so the map is
+          usable immediately and only swaps if an archive is actually there. */}
+      {checked && basemap ? (
+        <Suspense fallback={<SvgCanvas leads={shown} selected={selected} onSelect={setSelected} />}>
           <GlCanvas
             leads={shown}
-            styleUrl={BASEMAP}
+            styleUrl={basemap}
             selected={selected}
             onSelect={setSelected}
           />
@@ -93,7 +123,7 @@ export default function StormMap() {
 
       {selected && <SelectedLead lead={selected} onClose={() => setSelected(null)} />}
 
-      <Legend attribution={BASEMAP ? ATTRIBUTION : undefined} />
+      <Legend attribution={ATTRIBUTION} />
     </div>
   )
 }

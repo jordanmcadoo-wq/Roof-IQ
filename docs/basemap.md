@@ -49,31 +49,41 @@ app's own origin:
 MapLibre also lets hail evidence be real geographic layers rather than points
 projected by hand, so marks stay registered to the street grid at any zoom.
 
-## Setting it up with Protomaps (recommended)
+## Turning on the full street grid
 
-1. Build a metro extract. From <https://app.protomaps.com> draw a box around the
-   service area and download the `.pmtiles`, or cut one locally:
+Everything except the archive itself is already committed and verified. One
+file is all that is left:
 
-   ```sh
-   # pmtiles CLI, from a region file such as Geofabrik's oklahoma-latest.osm.pbf
-   pmtiles extract https://build.protomaps.com/YYYYMMDD.pmtiles okc.pmtiles \
-     --bbox=-97.85,35.35,-97.20,35.75
-   ```
+1. Go to <https://app.protomaps.com>, draw a box around the service area
+   (roughly `-98.45, 34.70` to `-96.70, 36.05` covers every campaign zone from
+   Chickasha to Luther) and download the `.pmtiles`.
+2. Save it as **`web/public/basemap/okc.pmtiles`**.
+3. Deploy.
 
-2. Put `okc.pmtiles` and a `style.json` under `web/public/basemap/`. Everything
-   in `public/` is served as a static asset, so both end up same-origin.
+That is the whole procedure. No environment variable, no rebuild flag, no code
+change. On the map tab the app sends a `HEAD` to `/basemap/okc.pmtiles`; if it
+answers, the MapLibre canvas loads with the committed style, and if it 404s the
+tile-free canvas is used. The archive is ~100 MB of OSM extract, which is why it
+is not in git.
 
-3. In the style, point the vector source at the file through the pmtiles
-   protocol, which `GlCanvas` registers:
+### What is already done
 
-   ```json
-   { "sources": { "protomaps": { "type": "vector", "url": "pmtiles:///basemap/okc.pmtiles" } } }
-   ```
-
-   A ready-made dark style is available from `protomaps-themes-base`.
-
-4. Set `VITE_BASEMAP_URL=/basemap/style.json` and rebuild. Leave
-   `BASEMAP_ORIGIN` unset — the file is same-origin.
+- **`public/basemap/style.json`** — 57 layers, generated from
+  `protomaps-themes-base` in its dark theme. It uses the **no-labels** variant
+  deliberately: labelled layers need glyph `.pbf` files from an external font
+  host, which would break both the offline guarantee and the same-origin CSP.
+  Route numbers come from the Natural Earth layer instead.
+- **`pmtiles://` protocol registration** in `GlCanvas`.
+- **HTTP range requests in `server.mjs`.** PMTiles reads an archive by byte
+  range and never whole; without this MapLibre would refetch ~100 MB per tile.
+  Single ranges, suffix ranges (the footer probe) and `416` are all handled,
+  and files over 4 MB stream rather than being read into memory. Verified
+  against a planted archive: `bytes=0-15`, `bytes=1000-1099`, `bytes=-8` and
+  `bytes=50000-50003` all return `206` with byte-exact content.
+- **`/basemap/` excluded from the SPA fallback,** so a missing archive returns
+  `404` rather than `index.html` with a `200`. The auto-detection depends on
+  that answer meaning something.
+- **`.pmtiles` MIME type** (`application/vnd.pmtiles`).
 
 ## Setting it up with a hosted style
 

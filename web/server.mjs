@@ -13,6 +13,7 @@
 
 import { createServer } from 'node:http'
 import { readFile, stat } from 'node:fs/promises'
+import { createReadStream } from 'node:fs'
 import { join, extname, normalize, resolve } from 'node:path'
 
 const ROOT = resolve(import.meta.dirname, 'dist')
@@ -32,7 +33,14 @@ const MIME = {
   '.woff2': 'font/woff2',
   '.txt': 'text/plain; charset=utf-8',
   '.map': 'application/json; charset=utf-8',
+  // A PMTiles basemap is read by byte range, never whole; see the range
+  // handling below, without which MapLibre would refetch the entire archive
+  // for every tile.
+  '.pmtiles': 'application/vnd.pmtiles',
 }
+
+/** Files large enough that reading them into memory per request is not sane. */
+const STREAM_OVER_BYTES = 4 * 1024 * 1024
 
 /**
  * Origin serving the map basemap, when one is hosted off this domain.
@@ -89,13 +97,44 @@ function safePath(urlPath) {
   return candidate === ROOT || candidate.startsWith(ROOT + '/') ? candidate : null
 }
 
-async function readIfFile(path) {
+async function statIfFile(path) {
   try {
     const info = await stat(path)
-    return info.isFile() ? await readFile(path) : null
+    return info.isFile() ? info : null
   } catch {
     return null
   }
+}
+
+async function readIfFile(path) {
+  const info = await statIfFile(path)
+  return info ? await readFile(path) : null
+}
+
+/**
+ * Parse a single-range `Range: bytes=a-b` header against a known size.
+ * Multi-range requests are not worth supporting here - PMTiles asks for one
+ * range at a time - so anything else falls through to a normal 200.
+ */
+function parseRange(header, size) {
+  const m = /^bytes=(\d*)-(\d*)$/.exec((header || '').trim())
+  if (!m) return null
+  const [, rawStart, rawEnd] = m
+  if (rawStart === '' && rawEnd === '') return null
+  let start, end
+  if (rawStart === '') {
+    // Suffix form: the last N bytes. PMTiles uses this to find its footer.
+    const n = Number(rawEnd)
+    if (!Number.isFinite(n) || n <= 0) return null
+    start = Math.max(0, size - n)
+    end = size - 1
+  } else {
+    start = Number(rawStart)
+    end = rawEnd === '' ? size - 1 : Number(rawEnd)
+  }
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null
+  if (start > end || start >= size) return null
+  return { start, end: Math.min(end, size - 1) }
 }
 
 const server = createServer(async (req, res) => {
@@ -110,32 +149,68 @@ const server = createServer(async (req, res) => {
     return res.end('Forbidden')
   }
 
-  let body = await readIfFile(path)
   let ext = extname(path)
+  const info = await statIfFile(path)
 
-  // SPA fallback: anything that is not a real file is a client-side route, so
-  // hand back the shell with 200. Asset paths are excluded - a missing bundle
-  // should 404 loudly rather than return HTML that silently fails to parse.
-  if (!body && !path.startsWith(join(ROOT, 'assets'))) {
-    body = await readIfFile(join(ROOT, 'index.html'))
-    ext = '.html'
+  const isAsset = path.startsWith(join(ROOT, 'assets'))
+  // /basemap/ is excluded from the SPA fallback alongside /assets/. The app
+  // probes for the basemap archive and switches canvases on the answer, so a
+  // missing file has to 404 rather than come back as index.html with a 200.
+  const isBasemap = path.startsWith(join(ROOT, 'basemap'))
+
+  if (info) {
+    const headers = {
+      'Content-Type': MIME[ext] ?? 'application/octet-stream',
+      'Accept-Ranges': 'bytes',
+      'Cache-Control': isAsset
+        ? 'public, max-age=31536000, immutable'
+        : 'no-cache, must-revalidate',
+      ...SECURITY_HEADERS,
+    }
+
+    const range = parseRange(req.headers.range, info.size)
+    if (range) {
+      const { start, end } = range
+      res.writeHead(206, {
+        ...headers,
+        'Content-Range': `bytes ${start}-${end}/${info.size}`,
+        'Content-Length': end - start + 1,
+      })
+      if (req.method === 'HEAD') return res.end()
+      return createReadStream(path, { start, end }).pipe(res)
+    }
+
+    // An unsatisfiable range must say so rather than quietly serving the file.
+    if (req.headers.range && !range) {
+      res.writeHead(416, { ...headers, 'Content-Range': `bytes */${info.size}` })
+      return res.end()
+    }
+
+    res.writeHead(200, { ...headers, 'Content-Length': info.size })
+    if (req.method === 'HEAD') return res.end()
+    if (info.size > STREAM_OVER_BYTES) return createReadStream(path).pipe(res)
+    return res.end(await readFile(path))
   }
 
-  if (!body) {
+  if (isAsset || isBasemap) {
     res.writeHead(404, SECURITY_HEADERS)
     return res.end('Not Found')
   }
 
-  const immutable = path.startsWith(join(ROOT, 'assets'))
+  // SPA fallback: anything that is not a real file is a client-side route, so
+  // hand back the shell with 200.
+  const shell = await readIfFile(join(ROOT, 'index.html'))
+  if (!shell) {
+    res.writeHead(404, SECURITY_HEADERS)
+    return res.end('Not Found')
+  }
   res.writeHead(200, {
-    'Content-Type': MIME[ext] ?? 'application/octet-stream',
-    'Content-Length': body.length,
-    'Cache-Control': immutable
-      ? 'public, max-age=31536000, immutable'
-      : 'no-cache, must-revalidate',
+    'Content-Type': MIME['.html'],
+    'Content-Length': shell.length,
+    'Cache-Control': 'no-cache, must-revalidate',
     ...SECURITY_HEADERS,
   })
-  res.end(req.method === 'HEAD' ? undefined : body)
+  res.end(req.method === 'HEAD' ? undefined : shell)
 })
 
 server.listen(PORT, '0.0.0.0', () => {
