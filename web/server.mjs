@@ -34,6 +34,28 @@ const MIME = {
   '.map': 'application/json; charset=utf-8',
 }
 
+/**
+ * Origin serving the map basemap, when one is hosted off this domain.
+ *
+ * A self-hosted .pmtiles file needs nothing here -- it is same-origin and
+ * already covered by 'self', which is the reason to prefer it. This exists so a
+ * hosted style (MapTiler, Stadia, a CDN) can be allowed without editing the
+ * policy by hand, and so the allowance is one named origin rather than a
+ * wildcard.
+ */
+const BASEMAP_ORIGIN = (() => {
+  const raw = (process.env.BASEMAP_ORIGIN ?? '').trim()
+  if (!raw) return ''
+  try {
+    // Parsed rather than interpolated: a malformed value would otherwise inject
+    // directives into the policy.
+    return new URL(raw).origin
+  } catch {
+    console.warn(`BASEMAP_ORIGIN is not a valid URL, ignoring: ${raw}`)
+    return ''
+  }
+})()
+
 const SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
@@ -45,9 +67,12 @@ const SECURITY_HEADERS = {
     "script-src 'self'",
     // Inline styles are needed because progress bars set width via a style attribute.
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob:",
+    `img-src 'self' data: blob: ${BASEMAP_ORIGIN}`.trim(),
     "font-src 'self'",
-    `connect-src 'self' ${SUPABASE} ${SUPABASE.replace('https://', 'wss://')}`,
+    // MapLibre runs its tile parsing in workers created from blob: URLs, so
+    // without worker-src the map fails with no visible error.
+    "worker-src 'self' blob:",
+    `connect-src 'self' ${SUPABASE} ${SUPABASE.replace('https://', 'wss://')} ${BASEMAP_ORIGIN}`.trim(),
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",
