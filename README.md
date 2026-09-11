@@ -50,12 +50,17 @@ A React field app for reps lives in [`web/`](./web), reading directly from the
 setup, the required database migration, and Cloudflare Pages deployment.
 
 ```bash
-cd web && npm install && cp .env.example .env && npm run dev
+cd web && npm install && npm run dev
 ```
+
+The Supabase URL and publishable key are compiled in as defaults, so no `.env` is
+needed to run it. Live at https://web-production-60f6f.up.railway.app
 
 ## Documentation
 
 - [Front end](./docs/frontend.md) — the rep field app: stack, setup, deploy
+- [Pipeline health](./docs/pipeline-health.md) — why storm ingestion stalled on
+  2026-09-07, and what it takes to restart it
 - [Upgrades — September 2026](./docs/upgrades-2026-09.md) — data health, rep field
   workflow, manager dashboard, roof measurement and permit matching
 - [Data quality audit](./docs/data-quality-audit.md) — defects found in the launch

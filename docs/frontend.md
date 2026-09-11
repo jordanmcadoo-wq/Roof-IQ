@@ -21,7 +21,7 @@ assigned to them. The browser holds a publishable key, and RLS does the rest.
 | Build | Vite + React 18 + TypeScript (strict) | Fast, boring, no framework lock-in |
 | Styling | Tailwind v4 | Design tokens in CSS, no config file to drift |
 | Data | `@supabase/supabase-js` | Talks to Postgres through PostgREST |
-| Hosting | Cloudflare Workers (static assets) | Free tier permits commercial use; Cloudflare's current path for static sites |
+| Hosting | Railway (container + `server.mjs`) | Deployed there today; Cloudflare Workers config is kept alongside it |
 
 Vercel's Hobby plan is restricted to non-commercial personal use, which a
 roofing sales tool is not. Cloudflare Pages carries no such restriction, which
@@ -68,98 +68,82 @@ migration revokes them explicitly. `security_invoker` already blocks anon — it
 holds no grant on `okc_launch_cut`, verified by querying the view as that role —
 but the revoke means access does not depend on that chain staying intact.
 
-## Deploying to Cloudflare
+## Where it is deployed
 
-The target is **Workers with static assets**, not Pages. Cloudflare's own
-migration guide is explicit about this for new static sites: use
-`wrangler deploy`, never `wrangler pages deploy`. Pages is the older path.
+**Live on Railway:** https://web-production-60f6f.up.railway.app
 
-Config lives in `web/wrangler.jsonc`. It is an assets-only project — no `main`
-and no assets `binding`, because there is no Worker script. Adding either would
-be invalid.
+| | |
+| --- | --- |
+| Project | `roofiq-field` |
+| Service | `web` (root directory `web`) |
+| Source | `jordanmcadoo-wq/Roof-IQ` |
+| Runtime | Node 22, `npm start` -> `server.mjs` |
 
-### The URL
+Railway runs containers rather than serving static files, so `web/server.mjs`
+sits in front of the build. It is dependency-free on purpose: the job is reading
+files out of `dist/` and setting headers, and a server framework would add
+supply-chain surface for no benefit. It reproduces what `_headers` gives on
+Cloudflare — the same CSP pinned to the Supabase origin over https and wss,
+immutable caching for fingerprinted assets, `no-cache` on the shell, and
+`index.html` for unknown paths so a deep link survives a refresh. Asset paths are
+excluded from that fallback, so a missing bundle 404s loudly instead of returning
+HTML that fails to parse.
 
-Once deployed, the app is served at:
+### Auto-deploy does not currently work
 
-```
-https://roofiq-field.<your-workers-subdomain>.workers.dev
-```
+`describe-service` reports the source as repo + root directory with **no branch
+recorded**, so Railway watches the repository's default branch. Attaching a
+source triggers a one-off build but does not appear to persist branch tracking:
+two pushes to the working branch, and the merge commit onto `main`, all failed to
+produce a deployment.
 
-`<your-workers-subdomain>` is set once per account (Cloudflare dashboard →
-Workers & Pages → the subdomain shown in the right-hand panel). `wrangler deploy`
-also prints the full URL when it finishes. A custom domain can be attached later
-under the Worker's **Settings → Domains & Routes**.
+Until that is resolved, a deploy has to be triggered explicitly — re-attach the
+source with `connect-service-source`, then **verify the deployed `commitHash` in
+`list-deployments` matches what was pushed** rather than trusting a SUCCESS
+status.
 
-### Deploying by hand
+### Cloudflare is still wired up
 
-```bash
-cd web
-export CLOUDFLARE_API_TOKEN=...   # or: npx wrangler login
-npm run deploy
-```
-
-`npm run cf:check` builds and runs `wrangler deploy --dry-run`, which validates
-the config without contacting the account or needing credentials.
-
-### Deploying from CI
-
-`.github/workflows/deploy-field-app.yml` builds and deploys on pushes to `main`
-that touch `web/`. It needs, in repo settings:
-
-| Kind | Name | Value |
-| --- | --- | --- |
-| Secret | `CLOUDFLARE_API_TOKEN` | Token with **Account → Workers Scripts → Edit** |
-| Secret | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare dashboard sidebar |
-| Variable | `VITE_SUPABASE_URL` | `https://bmnhxvdnvytdrpqgvxts.supabase.co` |
-| Variable | `VITE_SUPABASE_PUBLISHABLE_KEY` | The publishable key |
-
-Create the token at **My Profile → API Tokens → Create Token**, using the
-**Edit Cloudflare Workers** template. Nothing here needs Zone or DNS scope.
-
-Vite inlines `VITE_*` variables at **build** time, not runtime, so they must be
-present before the build step. Adding them afterwards requires a rebuild.
-
-The Supabase values are repo *variables*, not secrets, on purpose: the
-publishable key is meant to ship inside the browser bundle, and row-level
-security guards the data. Marking it secret would imply a protection it does not
-provide while making rotation harder.
-
-### Routing and headers
-
-`wrangler.jsonc` sets `assets.not_found_handling` to `single-page-application`,
-so any path that is not a real file serves `index.html` with `200`. That is what
-makes a hard refresh on `/zone/...` resolve instead of 404. It replaces the
-`_redirects` catch-all that Pages required — which is why that file is gone.
-
-`public/_headers` still applies: Cloudflare supports `_headers` natively on
-Workers static assets. It sets:
-
-- `/assets/*` immutable for a year — Vite fingerprints those filenames
-- `/index.html` `no-cache`, or a deploy strands reps on stale JS pointing at
-  asset hashes that no longer exist
-- A Content-Security-Policy pinned to the `roofiq-ai` Supabase origin over https
-  and wss. `script-src` is `'self'` with no exceptions, which the build satisfies
-  — it emits no inline scripts. `style-src` permits inline only because progress
-  bars set width through a style attribute
-
-**If you point the app at a different Supabase project, update `connect-src` in
-`public/_headers`.** Otherwise the browser blocks every query and the app looks
-broken with nothing useful in the console.
+`web/wrangler.jsonc` and `public/_headers` target Workers static assets, and
+`.github/workflows/deploy-field-app.yml` will publish there the moment
+`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` exist as repository secrets.
+The deploy step is gated on that token being present, so it skips cleanly rather
+than failing a branch that does not use it. Cloudflare's free tier permits
+commercial use and does not meter bandwidth; Railway bills after its trial
+credit.
 
 ## What it does
 
 - **Zones** — every zone with door count, A1 count, pipeline value and a
   progress bar showing how much has been worked
 - **Route** — the walk order as large touch targets, one-tap outcomes, notes,
-  Navigate to Google Maps, and Call when a number exists
+  Navigate to Google Maps, Call when a number exists, plus band and
+  assigned-to-me filters
 - **Optimize walk order** — greedy nearest-neighbour re-sequencing seeded from
   the best lead, with the mileage it saves shown up front. The launch cut's
   `stop_order` ignores geography, so routes cross their own path
+- **Lead detail** — the model's own reasoning at the door: full storm history,
+  MRMS radar-grid evidence, roof age and condition, estimated job value, the
+  `property_ai_insights` recommendation with its rationale and confidence, and
+  an absentee-owner flag derived from a mailing address that diverges from the
+  site
+- **Storm map** — every door placed by coordinate, coloured by worst hail on a
+  validated sequential ramp, with worked doors on a shape channel
+- **Search** — queries `properties` directly, so any of the ~87k scored
+  addresses can be looked up, not just the 4,797 in the launch cut
+- **Follow-ups** — opportunity appointments, inspections and next actions merged
+  with open tasks, split overdue / upcoming / unscheduled
 - **Pipeline** — live doors, pipeline value, contact rate, inspections, sold,
   and zones ranked by value
 - **Re-roofed doors** are flagged from `has_recent_roof_permit` and dimmed, so
   reps skip roofs that have already been replaced
+
+## The data behind it is currently stale
+
+The app renders whatever the scoring model last produced. As of 2026-09-11 that
+was three days old, because ingestion self-paused on a storage limit — see
+[pipeline-health.md](./pipeline-health.md). The UI is working correctly; the
+numbers it shows are not current.
 
 ## Things worth knowing
 
