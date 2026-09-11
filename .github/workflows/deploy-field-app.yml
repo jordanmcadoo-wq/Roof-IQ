@@ -21,6 +21,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      # Read once at job level so the step below can test it. A step cannot
+      # reference its own `env` from its `if`, and secrets are not available in
+      # an `if` expression directly.
+      CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -51,8 +56,12 @@ jobs:
       # Pull requests build and typecheck but never deploy. Secrets are not
       # exposed to fork PRs, and a pull request should not publish to
       # production regardless.
+      # Skips cleanly rather than failing when Cloudflare is not configured.
+      # The app currently deploys to Railway; this path stays wired up so
+      # adding the two secrets is all it takes to publish to Cloudflare too,
+      # but its absence should not hold the branch red in the meantime.
       - name: Deploy
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && env.CF_TOKEN != ''
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
